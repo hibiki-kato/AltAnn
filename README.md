@@ -126,6 +126,13 @@ original genome and preserves CDS phase. `--strand minus` does not reverse
 the supplied sequence or score arrays. A `.rc.fa` filename or an unambiguous
 `plus`/`minus` directory token can supply the orientation automatically.
 
+UniAnn itself decodes one oriented sequence. Its result GFF may therefore
+contain only the positive strand. A negative-strand UniAnn GFF is optional:
+AltAnn recomputes the baseline for each supplied job. Processing both strands
+requires both sets of strand-specific scores; reversing positive-strand
+scores cannot produce negative-strand predictions. The manifest determines
+which jobs run, so include one row per chromosome and strand as shown below.
+
 For multiple jobs, provide a TSV inventory of existing files:
 
 ```text
