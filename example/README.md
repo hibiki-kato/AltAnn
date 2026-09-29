@@ -52,8 +52,7 @@ see [input formats](../docs/format.md).
 ## Decode the reverse input separately
 
 **For `--reverse`, the input FASTA must already be reverse complemented.**
-This requires reversing the sequence and complementing the bases (A with T,
-C with G). The flag does not transform the FASTA for you.
+This requires reversing the sequence and complementing the bases (A to T, T to A, C to G, G to C). The flag does not transform the FASTA for you.
 
 In this example, `minus/sequence.rc.fna` is already the reverse complement of
 `plus/sequence.fna`; their sequence identifiers and lengths are the same, but
