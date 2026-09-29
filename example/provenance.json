@@ -47,7 +47,6 @@
     "states": 7,
     "generated_results": "ignored under example/work/"
   },
-  "checksums": "SHA256SUMS",
   "generated_on": "2026-09-29",
   "distributed_inputs": "Oriented FASTA, UniAnn emission table, GT/AG/ATG/STOP transition score tables",
   "preprocessing": {
