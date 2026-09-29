@@ -5,34 +5,42 @@ Practice AltAnn on chromosome III of *Schizosaccharomyces pombe*
 The forward sequence and its reverse complement each have their own prepared
 emission and transition score tables. No scoring software or GPU is needed.
 
-The compressed inputs total 34.7 MB. Processed scores for all three chromosomes
-would exceed the 100 MB example budget, so this tutorial uses chromosome III.
-Checksums are in `SHA256SUMS`; data generation and model details are in
-`provenance.json`. Those scoring tools were used to prepare the files and are
-not AltAnn dependencies.
+The inputs are plain files tracked by Git, without Git LFS. Each file is below
+100 MB; the largest emission table is approximately 89.4 MB. The two directions
+total approximately 206.8 MB (decimal MB). Exact byte counts are recorded in
+`provenance.json` as `largest_input_bytes` and `input_bytes`.
+Chromosomes I and II are omitted because each of their full emission
+tables exceeds 100 MB. Checksums are in `SHA256SUMS`; data generation and model
+details are in `provenance.json`. The scoring tools listed there prepared the
+files and are not AltAnn dependencies.
 
-## Prepare the input files
+These inputs are a fixed tutorial dataset and are intended to remain stable.
+Replacing large files repeatedly would increase repository history and download
+costs; changes should be limited to necessary data corrections.
 
-Use AltAnn 0.2.0 or later and Python 3.9 or later. Follow the repository's
+## Locate the input files
+
+Use AltAnn 0.2.0 or later and Python 3.9 or later. Python runs AltAnn's CLI and
+GFF3 export, including in the release packages; it is required even though the
+tutorial commands invoke `bin/altann` directly. No additional Python packages
+are needed. Follow the repository's
 [build instructions](../README.md#build-from-source-developers), or download a
 [release package](https://github.com/hibiki-kato/AltAnn/releases).
-Run these commands from the repository root:
+Run the commands below from the repository root. No decompression or
+preparation step is required.
 
-```sh
-python3 example/prepare.py
-```
-
-This only decompresses the supplied files into `example/work/inputs/`.
-It does not calculate scores or reverse sequences. Each orientation contains
-one FASTA and `out.ps.txt`, `out.gt.txt`, `out.ag.txt`, `out.atg.txt`, and
-`out.stop.txt`. The latter four files are position-specific transition scores.
-The legacy emission format has N, E0, E1, E2, and a shared I score for the three
-intron states, giving the seven-state UniAnn model.
+The forward FASTA is `example/data/NC_003421.2/plus/sequence.fna`; the already
+reverse-complemented FASTA is `example/data/NC_003421.2/minus/sequence.rc.fna`.
+Each directory also contains
+`out.ps.txt`, `out.gt.txt`, `out.ag.txt`, `out.atg.txt`, and `out.stop.txt`.
+The latter four files are position-specific transition scores. The legacy
+emission format has N, E0, E1, E2, and a shared I score for the three intron
+states, giving the seven-state UniAnn model.
 
 ## Decode the forward input
 
 ```sh
-bin/altann decode --input example/work/inputs/NC_003421.2/plus \
+bin/altann decode --input example/data/NC_003421.2/plus \
   --rerun-viterbi --k 10 --threads 4 --output example/results/chr3.plus.gff3
 ```
 
@@ -43,8 +51,18 @@ see [input formats](../docs/format.md).
 
 ## Decode the reverse input separately
 
+**For `--reverse`, the input FASTA must already be reverse complemented.**
+This requires reversing the sequence and complementing the bases (A to T, T to A, C to G, G to C). The flag does not transform the FASTA for you.
+
+In this example, `minus/sequence.rc.fna` is already the reverse complement of
+`plus/sequence.fna`; their sequence identifiers and lengths are the same, but
+their base sequences differ. The score files in `minus/` were prepared for that
+reverse-complemented sequence. Use them as supplied, without converting them
+again. For your own data, prepare the reverse-complemented FASTA first, then
+generate matching scores and, if used, a UniAnn GFF and Viterbi log.
+
 ```sh
-bin/altann decode --input example/work/inputs/NC_003421.2/minus \
+bin/altann decode --input example/data/NC_003421.2/minus \
   --reverse --rerun-viterbi --k 10 --threads 4 \
   --output example/results/chr3.minus.gff3
 ```

@@ -118,6 +118,11 @@ local K-best search.
 
 ## Reverse inputs
 
+**Before using `--reverse`, you must supply a reverse-complemented FASTA.**
+Reverse complement means reversing the sequence and replacing each base with
+its complement (A to T, T to A, C to G, G to C). Reversing the base order alone is insufficient.
+AltAnn does not perform this conversion for you.
+
 One invocation processes one orientation. To annotate the opposite strand,
 first reverse complement the FASTA outside AltAnn and produce UniAnn scores
 for that sequence. Supply those files in a separate invocation with `--reverse`:
