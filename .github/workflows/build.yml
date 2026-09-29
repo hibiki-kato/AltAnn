@@ -45,7 +45,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/unpacked"
           tar -xzf "dist/altann-${{ matrix.platform }}.tar.gz" -C "$RUNNER_TEMP/unpacked"
           python3 tests/check_install.py "$RUNNER_TEMP/unpacked/altann-${{ matrix.platform }}/bin/altann"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: altann-${{ matrix.platform }}
           path: dist/*.tar.gz
