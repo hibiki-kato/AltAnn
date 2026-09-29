@@ -2,6 +2,8 @@
 
 Run AltAnn on chromosome III of *Schizosaccharomyces pombe*
 (`NC_003421.2`) using the supplied FASTA and emission and transition scores.
+The example includes only chromosome III, with inputs for both the forward
+sequence and its reverse complement. Chromosomes I and II are not included.
 
 ## Before you start
 
