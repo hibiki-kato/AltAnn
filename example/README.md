@@ -61,6 +61,11 @@ and a path can contain more than one gene.
 
 ## Read the output
 
+With K=10, the forward run exports 1,114 transcripts (385 references and 729
+alternatives), and the reverse run exports 1,108 (402 references and 706
+alternatives). Both outputs were verified against a separate run importing the
+original UniAnn DP/BT logs; see [validation](../docs/validation.md).
+
 Each run writes its GFF, a `.gff3.tsv` diagnostics table, and `.gff3.json`
 provenance file. `example/work/` and `example/results/` are ignored by Git.
 The GFF contains transcripts, exons, and CDS. Column 6 is `.`; transcript

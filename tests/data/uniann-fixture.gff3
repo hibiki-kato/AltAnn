@@ -1,0 +1,7 @@
+##gff-version 3
+fixture	UniAnn	CDS	61	180	2	+	.	Parent=fixture.fa.1;state=E0
+fixture	UniAnn	intron	181	240	7.17	+	.	Parent=fixture.fa.1;state=I0
+fixture	UniAnn	CDS	241	453	3.87	+	.	Parent=fixture.fa.1;state=E0
+fixture	UniAnn	CDS	661	780	2	+	.	Parent=fixture.fa.2;state=E0
+fixture	UniAnn	intron	781	840	7.17	+	.	Parent=fixture.fa.2;state=I0
+fixture	UniAnn	CDS	841	1053	3.87	+	.	Parent=fixture.fa.2;state=E0
