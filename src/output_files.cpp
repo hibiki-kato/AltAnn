@@ -1,6 +1,7 @@
 #include "altann.hpp"
 #include <filesystem>
 #include <cstdlib>
+#include <unistd.h> // mkdtemp is declared here by macOS.
 
 namespace fs = std::filesystem;
 namespace {
@@ -28,7 +29,7 @@ void write_output_bundle(const vector<pair<string, string>> &files) {
             const char *directory = mkdtemp(buffer.data());
             if (!directory) throw runtime_error("Cannot stage output: " + file.first);
             entry.directory = directory;
-            staged.push_back(move(entry));
+            staged.push_back(std::move(entry));
             ofstream output(staged.back().directory / "new", ios::binary);
             output.exceptions(ios::badbit | ios::failbit);
             output.write(file.second.data(), file.second.size());
