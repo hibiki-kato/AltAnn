@@ -95,6 +95,41 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(Path(str(serial) + ".reference.gff").read_bytes(),
                          Path(str(parallel) + ".reference.gff").read_bytes())
 
+    def test_terminal_partial_gene_clips_window_without_losing_last_reference(self):
+        # A third start without a downstream stop remains in the global state
+        # path but has no complete transcript annotation. Its coding segment
+        # overlaps the requested flank of the second (last complete) reference.
+        partial_start = 1089
+        sequence = list(self.inputs["fasta"].read_text().splitlines()[1])
+        sequence[partial_start:partial_start + 3] = "ATG"
+        self.inputs["fasta"].write_text(">fixture\n" + "".join(sequence) + "\n")
+        with self.inputs["atg"].open("a") as stream:
+            stream.write(f"{partial_start}\t2\n")
+        rows = self.inputs["emissions"].read_text().splitlines()
+        for position in range(partial_start, len(sequence)):
+            rows[position] = f"{position}\t-8\t2\t-8\t-8\t-8"
+        self.inputs["emissions"].write_text("\n".join(rows) + "\n")
+
+        _, serial, serial_report = self.run_core("partial_serial", threads=1)
+        _, parallel, parallel_report = self.run_core("partial_parallel", threads=4)
+        self.assertEqual(serial.read_bytes(), parallel.read_bytes())
+        self.assertEqual(serial_report.read_bytes(), parallel_report.read_bytes())
+        serial_reference = Path(str(serial) + ".reference.gff")
+        self.assertEqual(serial_reference.read_bytes(),
+                         Path(str(parallel) + ".reference.gff").read_bytes())
+        references = [columns for columns, _ in read_gff(serial_reference)
+                      if columns[2] == "transcript"]
+        self.assertEqual([(int(row[3]), int(row[4])) for row in references],
+                         [(61, 453), (661, 1053)])
+        candidates = read_report(serial_report)
+        self.assertEqual({row["reference_gene_index"] for row in candidates}, {"1", "2"})
+        last_locus = [row for row in candidates if row["reference_gene_index"] == "2"]
+        # N->E occurs at the final ATG base. Pin the window to the preceding N
+        # base, using the same convention as boundaries at complete neighbors.
+        self.assertEqual({int(row["window_end_1based"]) for row in last_locus},
+                         {partial_start + 2})
+        self.assertTrue(any(row["identical_to_reference"] == "1" for row in last_locus))
+
     def test_k_limits_path_ranks(self):
         _, _, report = self.run_core(k=1)
         rows = read_report(report)
@@ -224,6 +259,38 @@ class DecoderTests(unittest.TestCase):
         best = self.work / "filtered-best.gff3"
         best.write_text("##gff-version 3\n")
         self.assertEqual(expected, self.run_cli("plus", ["--best-gff", str(best)]))
+
+    def test_cds_only_best_matches_both_coordinate_conventions(self):
+        # Upstream UniAnn groups CDS by Parent without transcript or exon rows.
+        # Reverse jobs can supply either oriented (+) or genomic (-) records.
+        for strand, source_strand in (("plus", "plus"), ("minus", "plus"),
+                                      ("minus", "minus")):
+            with self.subTest(strand=strand, source_strand=source_strand):
+                features = self.run_cli(source_strand)
+                references = {a["ID"] for c, a in features if a.get("kbest_rank") == "0"}
+                rows = [c for c, a in features
+                        if c[2] == "CDS" and a["Parent"] in references]
+                self.assertTrue(rows)
+                best = self.work / "cds-only.gff3"
+                best.write_text("".join("\t".join(c) + "\n" for c in rows))
+                expected = self.run_cli(strand)
+                self.assertEqual(expected, self.run_cli(strand, ["--best-gff", str(best)]))
+
+                rows[0][3] = str(int(rows[0][3]) + 1)
+                best.write_text("".join("\t".join(c) + "\n" for c in rows))
+                result = self.run_cli(strand, ["--best-gff", str(best)], check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("differs from the reconstructed baseline", result.stderr)
+
+    def test_populated_best_without_valid_models_is_rejected(self):
+        for feature, attributes in (("CDS", "ID=missing-parent"),
+                                    ("CDS", "Parent="), ("gene", "ID=gene1")):
+            with self.subTest(feature=feature, attributes=attributes):
+                best = self.work / "malformed-best.gff3"
+                best.write_text(f"fixture\tUniAnn\t{feature}\t1\t120\t.\t+\t0\t{attributes}\n")
+                result = self.run_cli("plus", ["--best-gff", str(best)], check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(result.stderr.strip())
 
     def test_explicit_segment_offset_and_ownership(self):
         for strand in ("plus", "minus"):

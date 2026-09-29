@@ -189,7 +189,8 @@ def validate_best(path, transcripts, chromosome, strand, offset, length):
     Accept that convention or already mapped genomic coordinates, but require
     every supplied model to use one consistent coordinate convention.
     """
-    models, children = {}, []
+    models, children, coding = {}, [], []
+    populated = False
     with open(path) as handle:
         for line in handle:
             if not line.strip() or line.startswith('#'):
@@ -197,17 +198,35 @@ def validate_best(path, transcripts, chromosome, strand, offset, length):
             row = line.rstrip().split('\t')
             if len(row) != 9:
                 raise ValueError(f'Expected nine GFF columns in {path}')
+            populated = True
             info = attrs(row)
             if row[2] in ('mRNA', 'transcript'):
                 models[info['ID']] = []
             elif row[2] == 'exon':
                 for parent in info['Parent'].split(','):
                     children.append((parent, row))
+            elif row[2] == 'CDS':
+                parents = info.get('Parent', '').split(',')
+                if not all(parents):
+                    raise ValueError(f'CDS has no Parent in {path}')
+                for parent in parents:
+                    coding.append((parent, row))
+    # The original UniAnn binary emits only CDS records, grouped by gene
+    # Parent. Its wrapper adds transcripts and exons. Validate either form
+    # against the corresponding baseline features without inventing exons.
+    cds_only = not models and bool(coding)
+    if cds_only:
+        models = {parent: [] for parent, _ in coding}
+        if children:
+            raise ValueError(f'Exon has no transcript in {path}')
+        children = coding
     for parent, row in children:
         if parent not in models:
             raise ValueError(f'Exon has no transcript in {path}: {parent}')
         models[parent].append((unquote(row[0]), int(row[3]), int(row[4]), row[6]))
     if not models:
+        if populated:
+            raise ValueError(f'Best GFF has no transcript or CDS models: {path}')
         return  # An entirely filtered UniAnn GFF is a valid empty subset.
     if any(not exons for exons in models.values()):
         raise ValueError(f'Best GFF validation requires exon features: {path}')
@@ -216,7 +235,8 @@ def validate_best(path, transcripts, chromosome, strand, offset, length):
     for t in transcripts.values():
         if t['rank'] != 0:
             continue
-        exons = sorted((int(r[3]), int(r[4])) for r in t['exons'])
+        features = t['cds'] if cds_only else t['exons']
+        exons = sorted((int(r[3]), int(r[4])) for r in features)
         local.add(tuple(exons))
         mapped = [(length-b+1, length-a+1) if strand == 'minus' else (a,b)
                   for a,b in exons]

@@ -22,7 +22,35 @@ On Dmel chromosome 4 (1,348,131 bases), K=20 and flank=1,000:
   7,183 records on plus and 7,294 on minus (357 and 478 transcripts).
 - Genome-wide equality across the other six chromosomes has not been measured.
 
-## Timing
+## S. pombe example
+
+All three nuclear chromosomes were scored in both orientations for the
+[included example](../example/README.md). The original seven-state UniAnn
+binary at upstream commit `91477a69e1a949fed082c4662b348d9a7a91ca2b` was run
+on all six prepared inputs. AltAnn 0.1.1, K=10, flank=1,000, and four threads
+reproduced every complete UniAnn CDS chain after reverse-coordinate mapping:
+
+| Chromosome | Plus references | Minus references |
+| --- | ---: | ---: |
+| NC_003424.3 | 974 | 1,060 |
+| NC_003423.3 | 840 | 807 |
+| NC_003421.2 | 385 | 402 |
+
+UniAnn also emitted one terminal partial model on chromosome I minus.
+AltAnn excludes this incomplete model as documented. The final output contains
+4,468 complete references and 8,226 alternative transcripts, after intron-chain
+deduplication. The full frontend run from the compressed example inputs took
+98.3 seconds on this development machine in one measurement. This includes
+score preprocessing and GFF conversion, but excludes archive decompression.
+
+This example exposed a flank extending into an omitted terminal partial model.
+The boundary regression now checks that the last complete reference is kept,
+the partial coding segment is excluded, and threads 1 and 4 produce identical
+output. Separate checks cover original UniAnn CDS-only GFF validation in both
+coordinate conventions. The local suite passes all 21 tests when the original
+snapshot executable is supplied.
+
+## Dmel timing
 
 Single-run native-decoder measurements on this development Linux amd64 machine,
 using the same prepared chromosome-4 plus inputs and `/usr/bin/time`:

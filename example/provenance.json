@@ -1,0 +1,55 @@
+{
+  "assembly": {
+    "accession": "GCF_000002945.2",
+    "name": "ASM294v3",
+    "fasta_sha256": "fc3a90996a09d653880aea616e235c878a3224eb678f9d5f099b9d4821b29762"
+  },
+  "chromosomes": [
+    "NC_003424.3",
+    "NC_003423.3",
+    "NC_003421.2"
+  ],
+  "orientations": [
+    "plus",
+    "reverse_complement"
+  ],
+  "psauron": {
+    "version": "1.1.3",
+    "source_commit": "eb9adbd003834e90124b0e7d0c6862ebd3b51926",
+    "source": "https://github.com/salzberg-lab/PSAURON",
+    "mode": "CPU, -a, three forward frames for each oriented sequence",
+    "chunk_bases": 4500000,
+    "overlap_bases": 3000,
+    "chunk_helper_sha256": "d4a8264a15f68f7521948cd170fad86eeef4d7245087a426039284b5724f3579",
+    "checkpoint_sha256": "a1b0b67303af6db3514ce62a1d07e2c211d81c0659647b53a91db3f430b27f38"
+  },
+  "sitescore": {
+    "source": "https://github.com/hibiki-kato/sitescore",
+    "source_commit": "f49d916942dd470bcf83ad7502808768ffdfc305",
+    "model": "convmamba",
+    "training_run": "ChimAnn spom_soct_novel",
+    "checkpoint_sha256": "c750f378a1e1b217838ef408826c79b6a9635b864d349a9db78bbea845dd9952",
+    "calibration_sha256": "0cecb015a7d38508562bde8b4ad723639eeb1b71b67ffeecceef3493d41e38ce",
+    "batch_size": 4,
+    "amp": "bf16",
+    "device": "NVIDIA GeForce RTX 5070",
+    "mode": "calibrated probabilities, plus strand of each oriented sequence"
+  },
+  "environment": {
+    "python": "3.12.14",
+    "torch": "2.10.0+cu128",
+    "numpy": "1.26.4",
+    "mamba_ssm": "2.3.2.post1",
+    "manager": "conda"
+  },
+  "uniann_validation": {
+    "source": "https://github.com/alekseyzimin/UniAnn",
+    "source_commit": "91477a69e1a949fed082c4662b348d9a7a91ca2b",
+    "executable_sha256": "a553f88d122923c44ac0a61056194bec9d208f9a947b906fe2520c5c3fcf9a9e",
+    "states": 7,
+    "generated_results": "ignored under example/work/"
+  },
+  "compressed_input_bytes": 43302823,
+  "checksums": "SHA256SUMS",
+  "generated_on": "2026-09-29"
+}

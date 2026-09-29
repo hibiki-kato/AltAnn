@@ -33,5 +33,7 @@ full contributor record. The GPL document's Free Software Foundation copyright
 notice applies to the license text and is not a software authorship credit.
 
 AltAnn requires no UniAnn executable, neural-network runtime, PSAURON executable,
-gffread, or gffcompare when decoding saved inputs. External sequence data and
-research result files are not included in this repository.
+gffread, or gffcompare when decoding saved inputs. The S. pombe genome and
+precomputed scores in `example/data/` are documented in
+[the example tutorial](example/README.md). Generated annotation results are
+excluded from version control.
