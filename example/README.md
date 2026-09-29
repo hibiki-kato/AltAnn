@@ -6,15 +6,24 @@ The forward sequence and its reverse complement each have their own prepared
 emission and transition score tables. No scoring software or GPU is needed.
 
 The inputs are plain files tracked by Git, without Git LFS. Each file is below
-100 MB; the largest emission table is 89.4 MB. The two directions total
-206.8 MB. Chromosomes I and II are omitted because each of their full emission
+100 MB; the largest emission table is approximately 89.4 MB. The two directions
+total approximately 206.8 MB (decimal MB). Exact byte counts are recorded in
+`provenance.json` as `largest_input_bytes` and `input_bytes`.
+Chromosomes I and II are omitted because each of their full emission
 tables exceeds 100 MB. Checksums are in `SHA256SUMS`; data generation and model
 details are in `provenance.json`. The scoring tools listed there prepared the
 files and are not AltAnn dependencies.
 
+These inputs are a fixed tutorial dataset and are intended to remain stable.
+Replacing large files repeatedly would increase repository history and download
+costs; changes should be limited to necessary data corrections.
+
 ## Locate the input files
 
-Use AltAnn 0.2.0 or later and Python 3.9 or later. Follow the repository's
+Use AltAnn 0.2.0 or later and Python 3.9 or later. Python runs AltAnn's CLI and
+GFF3 export, including in the release packages; it is required even though the
+tutorial commands invoke `bin/altann` directly. No additional Python packages
+are needed. Follow the repository's
 [build instructions](../README.md#build-from-source-developers), or download a
 [release package](https://github.com/hibiki-kato/AltAnn/releases).
 Run the commands below from the repository root. No decompression or
