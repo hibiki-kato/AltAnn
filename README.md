@@ -12,6 +12,9 @@ AltAnn builds on **[UniAnn by Aleksey Zimin](https://github.com/alekseyzimin/Uni
 and inherits its **GPLv3** license. Original author credits are retained;
 see [AUTHORS.md](AUTHORS.md) and [source provenance](THIRD_PARTY.md).
 
+Try the [S. pombe example](example/README.md) to decode all three nuclear
+chromosomes on both strands using supplied score files.
+
 ## Install a release
 
 Release packages target Linux/macOS on amd64/arm64. Download the matching
@@ -109,7 +112,8 @@ preprocessing. A rounded DP dump is not used for numerical scoring.
 
 **The global best is recomputed from the same scoring inputs.** A supplied
 UniAnn GFF checks that its exon structures are a subset of the reconstructed
-reference, allowing UniAnn's short-CDS filtering. GFF alone is insufficient to
+reference, allowing UniAnn's short-CDS filtering. The native UniAnn binary's
+CDS-only GFF is also accepted and checked by coding intervals. GFF alone is insufficient to
 recover all omitted genes or the boundary history. AltAnn does not silently
 substitute a supplied GFF for the state path. Use matching inputs and the
 compatible UniAnn model described below.
@@ -121,6 +125,13 @@ PSAURON and site scores. AltAnn maps the resulting annotations back to the
 original genome and preserves CDS phase. `--strand minus` does not reverse
 the supplied sequence or score arrays. A `.rc.fa` filename or an unambiguous
 `plus`/`minus` directory token can supply the orientation automatically.
+
+UniAnn itself decodes one oriented sequence. Its result GFF may therefore
+contain only the positive strand. A negative-strand UniAnn GFF is optional:
+AltAnn recomputes the baseline for each supplied job. Processing both strands
+requires both sets of strand-specific scores; reversing positive-strand
+scores cannot produce negative-strand predictions. The manifest determines
+which jobs run, so include one row per chromosome and strand as shown below.
 
 For multiple jobs, provide a TSV inventory of existing files:
 
@@ -164,7 +175,8 @@ space**. This preserves the Dmel compatibility search; it is not a guarantee
 of the mathematical global top K over all history-dependent paths.
 
 The default search includes each reference gene plus at most 1,000 intergenic
-bases on each side, clipped by neighboring genes and sequence ends. Both local
+bases on each side, clipped by neighboring coding states and sequence ends.
+This also excludes incomplete terminal genes from a neighboring locus's flank. Both local
 end states are N. Boundary history comes from the global N prefix. A start
 codon may not extend before the local window. Complete genes are exported;
 partial terminal predictions are not completed by this local search.

@@ -5,3 +5,5 @@
 __pycache__/
 *.py[cod]
 .altann-*/
+/example/work/
+/example/results/

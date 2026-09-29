@@ -225,19 +225,30 @@ LocusOutput decode_locus(
     tsv_out << setprecision(17);
     const auto &ref = references[ref_idx];
 
-    int L_bound = (ref_idx == 0) ? 0 : references[ref_idx - 1].path_end;
-    int R_bound = (ref_idx == references.size() - 1) ? L - 1 : references[ref_idx + 1].path_start - 1;
+    int requested_left = (ref_idx == 0) ? 0 : references[ref_idx - 1].path_end;
+    int requested_right = (ref_idx == references.size() - 1)
+        ? L - 1 : references[ref_idx + 1].path_start - 1;
     if (options.flank >= 0) {
-        L_bound = max(L_bound, ref.genomic_start_0based - options.flank);
-        R_bound = static_cast<int>(min<long long>(R_bound,
+        requested_left = max(requested_left, ref.genomic_start_0based - options.flank);
+        requested_right = static_cast<int>(min<long long>(requested_right,
             static_cast<long long>(ref.genomic_end_0based_exclusive) - 1 + options.flank));
     }
-    int local_len = R_bound - L_bound + 1;
 
-    if (local_len <= 0) return {};
-    if (global_path_states[L_bound] != 0 || global_path_states[R_bound] != 0) {
-        throw runtime_error("Local window for reference gene " + to_string(ref_idx + 1) + " does not end in N");
+    // Complete annotations omit terminal partial genes and invalid structures,
+    // but those coding segments still exist in the global state path. Extend
+    // each flank only through the contiguous N run adjoining this reference;
+    // otherwise its requested endpoint could fall inside an omitted neighbor.
+    int L_bound = ref.path_start - 1;
+    int R_bound = ref.path_end;
+    if (L_bound < 0 || R_bound >= L || L_bound >= R_bound ||
+        global_path_states[L_bound] != 0 || global_path_states[R_bound] != 0) {
+        throw runtime_error("Reference gene " + to_string(ref_idx + 1) +
+                            " has invalid intergenic boundary anchors");
     }
+    while (L_bound > requested_left && global_path_states[L_bound - 1] == 0)
+        --L_bound;
+    while (R_bound < requested_right && global_path_states[R_bound + 1] == 0)
+        ++R_bound;
 
     double ref_fixed_score = inputs.emit[L_bound][0];
     PathMetadata initial_metadata = options.flank >= 0
