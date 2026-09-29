@@ -10,7 +10,7 @@ launcher = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="altann-installed-") as work:
     work = Path(work)
     inputs = write_fixture(work / "inputs")
-    command = [str(launcher), "decode", "--strand", "plus", "--k", "2",
+    command = [str(launcher), "decode", "--rerun-viterbi", "--k", "2",
                "--threads", "2", "--flank", "50", "--output", str(work / "out.gff3")]
     for name, value in zip(("fasta", "emissions", "gt", "ag", "atg", "stop"), ordered_inputs(inputs)):
         command.extend(["--" + name, value])

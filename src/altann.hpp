@@ -118,6 +118,7 @@ struct Options {
     int threads = 0;
     string output_filename;
     string report_filename;
+    string viterbi_log_filename;
 };
 struct Fasta { string id; vector<char> sequence; };
 struct Baseline {
@@ -133,6 +134,7 @@ int splice_motif_start_0based(int);
 int codon_start_0based(int);
 TransitionResult evaluate_transition(int, int, int, const PathMetadata &, const ModelInputs &);
 Baseline decode_baseline(const ModelInputs &);
+Baseline load_baseline_log(const ModelInputs &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const vector<int> &, const vector<int> &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const vector<int> &, const string &);
 string intron_chain_key(const TranscriptAnnotation &);

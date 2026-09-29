@@ -18,6 +18,7 @@ from fixtures import ordered_inputs, write_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE = Path(os.environ.get("ALTANN_CORE", ROOT / "build" / "altann-core")).resolve()
+DATA = ROOT / "tests" / "data"
 
 
 def read_report(path):
@@ -214,7 +215,9 @@ class DecoderTests(unittest.TestCase):
         args = [sys.executable, "-m", "altann", "decode"]
         for key, path in self.inputs.items():
             args.extend(["--" + key, str(path)])
-        args.extend(["--strand", strand, "--output", str(output), "--core", str(CORE),
+        if strand == "minus":
+            args.append("--reverse")
+        args.extend(["--rerun-viterbi", "--output", str(output), "--core", str(CORE),
                      "--k", "8", "--flank", "50", "--threads", "2"])
         args.extend(extra)
         result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=check)
@@ -309,41 +312,104 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(self.run_cli("plus", ["--offset", "1000", "--sequence-length", "3000",
                                                "--segment-overlap", "0", "--segment-margin", "1200"]), [])
 
-    def test_manifest_both_strands_is_sorted_independently_of_job_order(self):
-        manifest = self.work / "jobs.tsv"
-        columns = ["strand", *self.inputs]
-        contents = []
-        for iteration, strands in enumerate((("minus", "plus"), ("plus", "minus"))):
-            with manifest.open("w") as stream:
-                writer = csv.DictWriter(stream, columns, delimiter="\t")
-                writer.writeheader()
-                for strand in strands:
-                    writer.writerow(dict(strand=strand, **{
-                        key: str(path.relative_to(self.work)) for key, path in self.inputs.items()}))
-            output = self.work / f"manifest-{iteration}.gff3"
-            subprocess.run([sys.executable, "-m", "altann", "decode", "--manifest", str(manifest),
-                            "--core", str(CORE), "--output", str(output), "--k", "8", "--flank", "50",
-                            "--threads", "2"], cwd=ROOT, check=True, capture_output=True, text=True)
-            contents.append(output.read_bytes())
-            features = read_gff(output)
-            self.assertEqual({c[6] for c, _ in features}, {"+", "-"})
-            keys = [(c[0], int(c[3]), int(c[4]), c[6], attrs["ID"])
-                    for c, attrs in features if c[2] in ("transcript", "mRNA")]
-            self.assertEqual(keys, sorted(keys))
-        self.assertEqual(contents[0], contents[1])
+    def run_saved_baseline(self, extra=(), name="saved", check=True):
+        """Run the CLI without implicitly supplying or recomputing a baseline."""
+        output = self.work / f"{name}.gff3"
+        command = [sys.executable, "-m", "altann", "decode"]
+        for key, path in self.inputs.items():
+            command.extend(["--" + key, str(path)])
+        command.extend(["--output", str(output), "--core", str(CORE),
+                        "--k", "8", "--flank", "50", "--threads", "2"])
+        command.extend(extra)
+        result = subprocess.run(command, cwd=ROOT, capture_output=True,
+                                text=True, check=check)
+        return result, output
 
-    def test_psauron_large_csv_fields(self):
-        from altann.cli import validate_psauron
+    def test_upstream_trace_matches_recomputed_baseline_in_both_directions(self):
+        # These files come from upstream UniAnn, not AltAnn's own decoder.
+        # Reverse changes output coordinates only; the supplied trace and GFF
+        # continue to describe the oriented input sequence.
+        for reverse in (False, True):
+            with self.subTest(reverse=reverse):
+                direction = ["--reverse"] if reverse else []
+                _, saved = self.run_saved_baseline(
+                    ["--log", str(DATA / "uniann-fixture.trace"),
+                     "--gff", str(DATA / "uniann-fixture.gff3"), *direction])
+                _, recomputed = self.run_saved_baseline(
+                    ["--rerun-viterbi", *direction], name="recomputed")
+                self.assertTrue(read_gff(saved))
+                self.assertEqual(saved.read_bytes(), recomputed.read_bytes())
+                self.assertEqual(Path(str(saved) + ".tsv").read_bytes(),
+                                 Path(str(recomputed) + ".tsv").read_bytes())
 
-        scores = self.work / "psauron.csv"
-        with scores.open("w") as stream:
-            stream.write("preamble\n" * 4)
-            row = ["fixture"] + [""] * 14
-            # Each semicolon-separated frame exceeds csv's usual 128 KiB limit.
-            row[9:12] = ["0.5;" * 40_000] * 3
-            csv.writer(stream).writerow(row)
-        validate_psauron(scores, self.inputs["fasta"])
+    def test_upstream_trace_ignores_progress_messages(self):
+        trace = self.work / "progress.trace"
+        rows = (DATA / "uniann-fixture.trace").read_text().splitlines(keepends=True)
+        trace.write_text("Loading sequence\n" + "".join(rows[:101]) +
+                         "Warning: diagnostic message\n" + "".join(rows[101:]) +
+                         "Finished decoding\n")
+        _, saved = self.run_saved_baseline(
+            ["--log", str(trace), "--gff", str(DATA / "uniann-fixture.gff3")])
+        _, recomputed = self.run_saved_baseline(["--rerun-viterbi"], name="recomputed")
+        self.assertEqual(saved.read_bytes(), recomputed.read_bytes())
 
+    def test_corrupt_upstream_trace_is_rejected(self):
+        original = (DATA / "uniann-fixture.trace").read_text().splitlines()
+        # Position 1's N predecessor is 0. State 1 is in range, but has a
+        # different score, so this checks replay validation rather than bounds.
+        score = original.copy()
+        fields = score[2].split("\t")
+        fields[2] = str(int(fields[2]) + 1)
+        score[2] = "\t".join(fields)
+        predecessor = original.copy()
+        fields = predecessor[3].split("\t")
+        fields[2] = "1"
+        predecessor[3] = "\t".join(fields)
+        short_row = original.copy()
+        short_row[2] = "\t".join(original[2].split("\t")[:-1])
+        cases = {
+            "score": (score, "score mismatch"),
+            "predecessor": (predecessor, "score mismatch"),
+            "missing_position": (original[:100] + original[102:], "expected position"),
+            "missing_bt": (original[:101] + original[102:], "expected"),
+            "truncated_file": (original[:-1], "incomplete dp/bt rows"),
+            "short_row": (short_row, "seven values"),
+        }
+        for name, (rows, message) in cases.items():
+            with self.subTest(corruption=name):
+                trace = self.work / f"{name}.trace"
+                trace.write_text("\n".join(rows) + "\n")
+                result, output = self.run_saved_baseline(
+                    ["--log", str(trace), "--gff", str(DATA / "uniann-fixture.gff3")],
+                    name=name, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(output.exists())
+
+    def test_default_mode_requires_both_gff_and_log(self):
+        for extra in ([], ["--gff", str(DATA / "uniann-fixture.gff3")],
+                      ["--log", str(DATA / "uniann-fixture.trace")]):
+            with self.subTest(arguments=extra):
+                result, output = self.run_saved_baseline(extra, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Supply --gff and --log", result.stderr)
+                self.assertFalse(output.exists())
+
+    def test_explicit_log_cannot_be_combined_with_rerun(self):
+        result, output = self.run_saved_baseline(
+            ["--rerun-viterbi", "--log", str(DATA / "uniann-fixture.trace")], check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--log cannot be combined with --rerun-viterbi", result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_removed_multi_direction_options_are_rejected(self):
+        for extra in (["--manifest", "jobs.tsv"], ["--strand", "minus"]):
+            with self.subTest(arguments=extra):
+                result, output = self.run_saved_baseline(
+                    ["--rerun-viterbi", *extra], check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unrecognized arguments", result.stderr)
+                self.assertFalse(output.exists())
 
 if __name__ == "__main__":
     unittest.main()

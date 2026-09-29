@@ -2,8 +2,8 @@
 """Bundle an installed AltAnn tree and its OpenMP runtime for distribution.
 
 The build machine needs the native toolchain and runtime development package.
-Archive users need Python 3; reconstructing scores from original UniAnn inputs
-also needs Perl. No compiler or separately installed OpenMP runtime is needed.
+Archive users need Python 3.9 or later. No compiler, Perl, PSAURON, or
+separately installed OpenMP runtime is needed.
 
 Run after cmake --install: package_release.py --prefix INSTALL --output FILE.tar.gz
 The installed tree and repository are never modified. All binary rewriting
@@ -230,8 +230,7 @@ def package(prefix, output):
     label = "macos" if system == "darwin" else "linux"
     archive_root = f"altann-{label}-{architecture}"
     prefix = prefix.resolve()
-    for relative in ("bin/altann-core", "bin/altann", "share/altann/altann/__init__.py",
-                     "share/altann/vendor/preprocess_psauron_scores.pl"):
+    for relative in ("bin/altann-core", "bin/altann", "share/altann/altann/__init__.py"):
         if not (prefix / relative).is_file():
             raise RuntimeError(f"Installed file is missing: {prefix / relative}. Run cmake --install first.")
     output = output.resolve()
@@ -248,7 +247,7 @@ def package(prefix, output):
         run(tree / "bin" / "altann-core", "--help", env=clean_runtime_environment())
         (tree / "BUNDLED_RUNTIMES.json").write_text(json.dumps(
             {"platform": label, "architecture": architecture, "libraries": runtimes,
-             "licenses": "licenses/", "runtime_requirements": ["Python 3.9+", "Perl for original input preprocessing"]},
+             "licenses": "licenses/", "runtime_requirements": ["Python 3.9+"]},
             indent=2) + "\n")
         # Publish only a complete archive; preserve an existing release on error.
         with tempfile.NamedTemporaryFile(prefix=output.name + ".", suffix=".tmp",

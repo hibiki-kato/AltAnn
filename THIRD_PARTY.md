@@ -13,12 +13,11 @@ inherited-boundary-history, and start-codon boundary patches. AltAnn separates
 these routines into modules, uses a rolling global score array, and parallelizes
 independent local searches. It does not use metadata-expanded states.
 
-`vendor/preprocess_psauron_scores.pl` is the UniAnn compatibility preprocessor.
-It is retained to reproduce existing PSAURON-to-emission conversion and requires
-Perl only when original PSAURON input is supplied. Its numerical transformations
-are not rewritten in Python. GFF export is adapted from the same Dmel
-experiment's conversion script. Credits for the original UniAnn implementation
-remain with its authors and contributors.
+GFF export is adapted from the same Dmel experiment's conversion script.
+Credits for the original UniAnn implementation remain with its authors and
+contributors. AltAnn reads processed emission and transition tables; UniAnn's
+PSAURON preprocessing is performed upstream of AltAnn and is not a runtime
+dependency.
 
 ## Credits
 

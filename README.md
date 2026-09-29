@@ -4,16 +4,16 @@ Alternative gene annotations through local K-best Viterbi decoding.
 
 AltAnn reads existing UniAnn inputs and produces scored alternative gene models
 in GFF3. A C++17 core handles dynamic programming and parallel local searches;
-a Python standard-library frontend prepares inputs and exports annotations in
-original genome coordinates. No UniAnn executable or new export format is
-required.
+a Python standard-library frontend reads processed score tables and exports
+annotations in original genome coordinates. Each invocation decodes one FASTA
+record in one orientation. No UniAnn executable is required.
 
 AltAnn builds on **[UniAnn by Aleksey Zimin](https://github.com/alekseyzimin/UniAnn)**
 and inherits its **GPLv3** license. Original author credits are retained;
 see [AUTHORS.md](AUTHORS.md) and [source provenance](THIRD_PARTY.md).
 
-Try the [S. pombe example](example/README.md) to decode all three nuclear
-chromosomes on both strands using supplied score files.
+Try the [S. pombe example](example/README.md) to decode chromosome III using
+supplied score files. Forward and reverse inputs are separate runs.
 
 ## Install a release
 
@@ -25,20 +25,18 @@ are included: **users do not need a compiler or a separate OpenMP installation**
 ```sh
 tar -xzf altann-linux-amd64.tar.gz
 altann-linux-amd64/bin/altann decode --input /path/to/uniann-job \
-  --strand plus --k 10 --threads auto --output alternatives.gff3
+  --rerun-viterbi --k 10 --threads auto --output alternatives.gff3
 ```
 
-Python 3.9 or later is needed for the frontend. Perl is needed only for original
-PSAURON input; retained emission tables avoid that dependency. These are
-directory packages containing a native executable and a Python frontend, not
-single-file executables. Linux release builds use Ubuntu 22.04 (glibc 2.35);
+Python 3.9 or later is needed for the frontend, with no additional Python
+packages. Perl and PSAURON are not required. Release archives are directory
+packages containing a native executable and a Python frontend. Linux release builds use Ubuntu 22.04 (glibc 2.35);
 macOS packages are built on macOS 15. Older systems have not been validated.
 
 ## Build from source (developers)
 
 Targets: **Linux and macOS, each on amd64 (x86_64) and arm64 (aarch64)**.
 Requirements: a C++17 compiler with OpenMP, CMake, and Python 3.9 or later.
-Perl is needed only when regenerating emissions from saved PSAURON scores.
 
 ```sh
 git clone https://github.com/hibiki-kato/AltAnn.git
@@ -77,88 +75,81 @@ overwritten; see [maintenance](docs/maintenance.md).
 
 ```sh
 bin/altann decode --input /path/to/uniann-job \
-  --strand plus --k 10 --flank 1000 --threads auto \
-  --output alternatives.gff3
+  --gff best.gff --log uniann.log \
+  --k 10 --flank 1000 --threads auto --output alternatives.gff3
 ```
 
-Each job contains one strand-oriented FASTA record. The directory reader uses
-either retained score tables or saved original inputs:
+The input contains exactly one FASTA record and its processed UniAnn scores.
+All files must describe the same sequence in the same orientation.
 
-| Input | Accepted files |
+| Input | Files |
 | --- | --- |
 | Sequence | One `.fa`, `.fasta`, or `.fna` file |
-| Retained emissions | `out.ps.txt` |
-| Retained motif scores | `out.gt.txt`, `out.ag.txt`, `out.atg.txt`, `out.stop.txt` |
-| Original emission input | `psauron_score.csv`, generated with PSAURON `-a` |
-| Original motif input | A single `sites*.tsv` |
-| Optional execution log | `run.log`, `uniann.log`, or `*.uniann.log` |
-| Optional reference check | A single `*.uniann.gff` |
+| Emissions | `out.ps.txt` |
+| Transition scores | `out.gt.txt`, `out.ag.txt`, `out.atg.txt`, `out.stop.txt` |
+| Baseline annotation | UniAnn GFF, supplied with `--gff` (`--best-gff` is an alias) |
+| Baseline traceback | UniAnn Viterbi log, supplied with `--log` |
 
 Ambiguous file selection fails with an explanation. Explicit paths override
-discovery: `--fasta`, `--emissions`, `--gt`, `--ag`, `--atg`, `--stop`,
-`--psauron`, `--sites`, `--log`, and `--best-gff`.
+score discovery: `--fasta`, `--emissions`, `--gt`, `--ag`, `--atg`, and `--stop`.
+PSAURON CSV and site probability tables must be processed by UniAnn beforehand;
+AltAnn consumes the resulting emission and transition scores.
+
+By default, GFF and log are required. AltAnn follows the log's traceback to
+recover the baseline path, then replays that path using the supplied scores.
+UniAnn's printed DP scores are truncated to integers, so they cannot provide
+exact path scores. The GFF is checked against the recovered baseline. Filtered
+annotations are accepted as matching subsets; incomplete terminal models must
+be excluded from a supplied reference GFF;
+see [input formats](docs/format.md).
+
+If the GFF or traceback log is unavailable, explicitly request a new global
+Viterbi pass:
 
 ```sh
-bin/altann decode --fasta segment.fa --emissions out.ps.txt \
+bin/altann decode --fasta chromosome.fna --emissions out.ps.txt \
   --gt out.gt.txt --ag out.ag.txt --atg out.atg.txt --stop out.stop.txt \
-  --strand plus --threads 8 --output alternatives.gff3
+  --rerun-viterbi --threads 8 --output alternatives.gff3
 ```
 
-Original score conversion reproduces UniAnn's preprocessing. When supplied,
-the log supplies the `Multiplier is ..., Factor is ...` values. Without a log,
-AltAnn uses the compatibility wrapper's default multiplier and donor-based
-factor calculation. Retained score tables are preferable if a run used modified
-preprocessing. A rounded DP dump is not used for numerical scoring.
+In this mode, `--log` is not accepted and the GFF is optional. A supplied GFF still
+checks the computed baseline. Both modes use the same seven-state model and
+local K-best search.
 
-**The global best is recomputed from the same scoring inputs.** A supplied
-UniAnn GFF checks that its exon structures are a subset of the reconstructed
-reference, allowing UniAnn's short-CDS filtering. The native UniAnn binary's
-CDS-only GFF is also accepted and checked by coding intervals. GFF alone is insufficient to
-recover all omitted genes or the boundary history. AltAnn does not silently
-substitute a supplied GFF for the state path. Use matching inputs and the
-compatible UniAnn model described below.
+## Reverse inputs
 
-## Both strands and multiple chromosomes
-
-Minus-strand inputs must already be reverse complemented, with the matching
-PSAURON and site scores. AltAnn maps the resulting annotations back to the
-original genome and preserves CDS phase. `--strand minus` does not reverse
-the supplied sequence or score arrays. A `.rc.fa` filename or an unambiguous
-`plus`/`minus` directory token can supply the orientation automatically.
-
-UniAnn itself decodes one oriented sequence. Its result GFF may therefore
-contain only the positive strand. A negative-strand UniAnn GFF is optional:
-AltAnn recomputes the baseline for each supplied job. Processing both strands
-requires both sets of strand-specific scores; reversing positive-strand
-scores cannot produce negative-strand predictions. The manifest determines
-which jobs run, so include one row per chromosome and strand as shown below.
-
-For multiple jobs, provide a TSV inventory of existing files:
-
-```text
-fasta	strand	score_dir
-chr1/plus/chr1.fa	plus	chr1/plus
-chr1/minus/chr1.rc.fa	minus	chr1/minus
-chr2/plus/chr2.fa	plus	chr2/plus
-```
+One invocation processes one orientation. To annotate the opposite strand,
+first reverse complement the FASTA outside AltAnn and produce UniAnn scores
+for that sequence. Supply those files in a separate invocation with `--reverse`:
 
 ```sh
-bin/altann decode --manifest inputs.tsv --threads 8 --output genome.gff3
+bin/altann decode --input /path/to/reverse-uniann-job \
+  --gff reverse.best.gff --log reverse.uniann.log --reverse \
+  --threads 8 --output reverse.alternatives.gff3
 ```
 
-Paths are relative to the manifest. Other supported columns are `emissions`,
-`gt`, `ag`, `atg`, `stop`, `psauron`, `sites`, `log`, `best_gff`, `seqid`,
-`offset`, `sequence_length`, and `segment` (a unique segment identifier).
-Segments run sequentially; local loci within each segment run in parallel.
-Results are sorted deterministically by sequence ID, coordinates, strand,
-and transcript ID.
+The reverse FASTA, emissions, transition scores, GFF, and log must all use the
+reverse input's coordinates. AltAnn trusts that these inputs have been prepared
+consistently. `--reverse` changes the output mapping only: annotations are
+reported on the original sequence with strand `-`. It does not transform
+input sequence, scores, or traceback. Without the flag, output uses strand `+`.
+Orientation is never inferred from filenames.
+
+For a complete sequence of length `L`, an input interval `[start, end]` becomes
+`[L - end + 1, L - start + 1]` in the output GFF. These coordinates are one based
+and inclusive. CDS phase is preserved. Use `--seqid` if the reverse FASTA has a
+different identifier from the original chromosome.
 
 Headers of the form `chromosome__start-end-total` carry zero-based half-open
 segment coordinates. Other headers use the complete sequence by default;
 `--seqid`, `--offset`, and `--sequence-length` specify an explicit mapping.
-For overlapping segments, midpoint ownership and internal-edge exclusion use
-`--segment-overlap 4000000` and `--segment-margin 20000`. Set these to the actual
-segmentation settings; they are not inferred from adjacent sequence files.
+Reverse coordinates are reflected within the supplied segment, then shifted
+by its offset. For segmented input, midpoint ownership and internal-edge
+exclusion use `--segment-overlap 4000000` and `--segment-margin 20000`. Set these
+to the segmentation settings used when preparing the inputs.
+
+Run additional sequences or orientations separately. Merge their GFF files as
+a separate downstream step if a combined annotation is needed.
 
 ## Model and selection
 
@@ -166,7 +157,15 @@ The compatibility model has seven coarse states:
 `N, E0, E1, E2, I0, I1, I2`. The emission table has five scores per position:
 `N, E0, E1, E2, I`; the intron score is shared by all three intron frames.
 An optional final nucleotide column is accepted. Positions in score tables
-are zero-based; sparse motif files contain `position score` pairs.
+are zero-based; sparse transition files contain `position score` pairs. These
+position-dependent scores work with UniAnn's transition rules; they are not a
+fixed 7-by-7 transition matrix.
+
+Length regulation uses the current UniAnn constants: `MIN_INTRON = 40`,
+`MIN_EXON = 3`, `MIN_INTER = 30`, and `MIN_SINGLE = 100`. UniAnn fixes these
+values internally, so AltAnn does too. They are model constants, not additional
+states or command-line parameters. The original transition predicates determine
+how the thresholds apply.
 
 AltAnn retains K paths per coarse state (`--k`, default **10**; use `--k 5`
 for a smaller candidate set). Length and frame history accompany
@@ -204,7 +203,7 @@ scores are attributes, matching the Dmel whole-genome export convention:
 | Attribute | Meaning |
 | --- | --- |
 | `kbest_score` | Score of the complete local path |
-| `kbest_reference_score` | Global best replayed over the same local interval |
+| `kbest_reference_score` | Baseline path replayed over the same local interval |
 | `kbest_delta` | Stored candidate score minus stored reference score |
 | `kbest_rank` | 0 for reference, 1..K for candidates |
 | `kbest_origin` | `uniann_best` or `local_kbest` |
@@ -223,7 +222,7 @@ Two sidecars accompany the GFF:
 - `.gff3.tsv`: native candidate diagnostics, with segment and strand columns.
   Coordinates in this report are in the oriented input sequence. It includes
   candidates removed by export selection; rank-0 references are in the GFF.
-- `.gff3.json`: input paths, parameters, scaling, counts, and elapsed times.
+- `.gff3.json`: input paths, parameters, counts, and elapsed times.
 
 The main GFF is atomically replaced after successful decoding and conversion.
 Input files are never modified.
@@ -237,8 +236,8 @@ machines. Auto currently selects CPUs, not a memory budget.
 
 The global pass keeps rolling scores and compact traceback. The local pass
 parallelizes independent loci with OpenMP and writes results in fixed order.
-The Python frontend uses disk-backed sorting across segments. A segment's
-candidate annotations are held in memory during conversion.
+The Python frontend sorts the exported annotations. A sequence's candidate
+annotations are held in memory during conversion.
 
 ```sh
 ctest --test-dir build --output-on-failure

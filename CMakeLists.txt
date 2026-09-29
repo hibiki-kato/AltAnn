@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(AltAnn VERSION 0.1.1 LANGUAGES CXX)
+project(AltAnn VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,7 +46,6 @@ install(TARGETS altann-core RUNTIME DESTINATION bin)
 install(PROGRAMS bin/altann DESTINATION bin)
 install(DIRECTORY altann/ DESTINATION share/altann/altann FILES_MATCHING
     PATTERN "*.py" PATTERN "__pycache__" EXCLUDE)
-install(FILES vendor/preprocess_psauron_scores.pl DESTINATION share/altann/vendor)
 install(FILES LICENSE THIRD_PARTY.md AUTHORS.md DESTINATION share/altann)
 
 include(CTest)
