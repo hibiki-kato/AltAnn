@@ -25,10 +25,9 @@ version still run all checks but do not create duplicate releases. Tagging and
 publishing happen in the same workflow, avoiding reliance on workflow-trigger
 events created by `GITHUB_TOKEN`.
 
-Release packages contain the native decoder, Python frontend, compatibility
-preprocessor, runtime notices, and bundled OpenMP library. End users need
-Python 3.9+, not a compiler or OpenMP
-development installation. Source code remains available with each release tag.
+Release packages contain the native decoder, Python frontend, runtime notices,
+and bundled OpenMP library. End users need Python 3.9+; a compiler and OpenMP
+development files are only needed for source builds. Source code remains available with each release tag.
 
 ## Package managers
 
