@@ -1,5 +1,9 @@
 # Validation
 
+These recorded measurements describe version 0.1.1. Version 0.2.0 changes the
+CLI to one direction per run and adds saved-traceback loading; the recorded
+whole-genome commands are not the current tutorial.
+
 ## Numerical compatibility
 
 The Dmel reference is the saved `Dmel_k20_flank1000_chain` coarse-state decoder
@@ -25,7 +29,7 @@ On Dmel chromosome 4 (1,348,131 bases), K=20 and flank=1,000:
 ## S. pombe example
 
 All three nuclear chromosomes were scored in both orientations for the
-[included example](../example/README.md). The original seven-state UniAnn
+original version 0.1.1 example. The original seven-state UniAnn
 binary at upstream commit `91477a69e1a949fed082c4662b348d9a7a91ca2b` was run
 on all six prepared inputs. AltAnn 0.1.1, K=10, flank=1,000, and four threads
 reproduced every complete UniAnn CDS chain after reverse-coordinate mapping:

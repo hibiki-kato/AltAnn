@@ -214,7 +214,9 @@ class DecoderTests(unittest.TestCase):
         args = [sys.executable, "-m", "altann", "decode"]
         for key, path in self.inputs.items():
             args.extend(["--" + key, str(path)])
-        args.extend(["--strand", strand, "--output", str(output), "--core", str(CORE),
+        if strand == "minus":
+            args.append("--reverse")
+        args.extend(["--rerun-viterbi", "--output", str(output), "--core", str(CORE),
                      "--k", "8", "--flank", "50", "--threads", "2"])
         args.extend(extra)
         result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=check)
@@ -309,40 +311,6 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(self.run_cli("plus", ["--offset", "1000", "--sequence-length", "3000",
                                                "--segment-overlap", "0", "--segment-margin", "1200"]), [])
 
-    def test_manifest_both_strands_is_sorted_independently_of_job_order(self):
-        manifest = self.work / "jobs.tsv"
-        columns = ["strand", *self.inputs]
-        contents = []
-        for iteration, strands in enumerate((("minus", "plus"), ("plus", "minus"))):
-            with manifest.open("w") as stream:
-                writer = csv.DictWriter(stream, columns, delimiter="\t")
-                writer.writeheader()
-                for strand in strands:
-                    writer.writerow(dict(strand=strand, **{
-                        key: str(path.relative_to(self.work)) for key, path in self.inputs.items()}))
-            output = self.work / f"manifest-{iteration}.gff3"
-            subprocess.run([sys.executable, "-m", "altann", "decode", "--manifest", str(manifest),
-                            "--core", str(CORE), "--output", str(output), "--k", "8", "--flank", "50",
-                            "--threads", "2"], cwd=ROOT, check=True, capture_output=True, text=True)
-            contents.append(output.read_bytes())
-            features = read_gff(output)
-            self.assertEqual({c[6] for c, _ in features}, {"+", "-"})
-            keys = [(c[0], int(c[3]), int(c[4]), c[6], attrs["ID"])
-                    for c, attrs in features if c[2] in ("transcript", "mRNA")]
-            self.assertEqual(keys, sorted(keys))
-        self.assertEqual(contents[0], contents[1])
-
-    def test_psauron_large_csv_fields(self):
-        from altann.cli import validate_psauron
-
-        scores = self.work / "psauron.csv"
-        with scores.open("w") as stream:
-            stream.write("preamble\n" * 4)
-            row = ["fixture"] + [""] * 14
-            # Each semicolon-separated frame exceeds csv's usual 128 KiB limit.
-            row[9:12] = ["0.5;" * 40_000] * 3
-            csv.writer(stream).writerow(row)
-        validate_psauron(scores, self.inputs["fasta"])
 
 
 if __name__ == "__main__":

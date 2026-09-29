@@ -5,8 +5,6 @@
     "fasta_sha256": "fc3a90996a09d653880aea616e235c878a3224eb678f9d5f099b9d4821b29762"
   },
   "chromosomes": [
-    "NC_003424.3",
-    "NC_003423.3",
     "NC_003421.2"
   ],
   "orientations": [
@@ -49,7 +47,17 @@
     "states": 7,
     "generated_results": "ignored under example/work/"
   },
-  "compressed_input_bytes": 43302823,
+  "compressed_input_bytes": 34693710,
   "checksums": "SHA256SUMS",
-  "generated_on": "2026-09-29"
+  "generated_on": "2026-09-29",
+  "distributed_inputs": "Oriented FASTA, UniAnn emission table, GT/AG/ATG/STOP transition score tables",
+  "preprocessing": {
+    "emissions": "UniAnn preprocess_psauron_scores.pl",
+    "transition_scores": "UniAnn-compatible logarithmic scaling, as implemented by AltAnn 0.1.1",
+    "multiplier": 2.71828182845905,
+    "factor": {
+      "plus": 1059,
+      "minus": 1042
+    }
+  }
 }

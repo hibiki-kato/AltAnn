@@ -1,69 +1,73 @@
 # S. pombe example
 
-This example runs AltAnn on all three nuclear chromosomes of
-*Schizosaccharomyces pombe*, on both strands. The compressed inputs include
-the genome, PSAURON coding scores, and predicted splice, start, and stop site
-probabilities. The mitochondrial chromosome is excluded from decoding.
+Practice AltAnn on chromosome III of *Schizosaccharomyces pombe*
+(`NC_003421.2`, 2,452,883 bases, RefSeq assembly `GCF_000002945.2` / ASM294v3).
+The forward sequence and its reverse complement each have their own prepared
+emission and transition score tables. No scoring software or GPU is needed.
 
-The compressed inputs total 43.3 MB. File checksums are listed in
-`SHA256SUMS`, and software versions and model hashes are recorded in
-`provenance.json`. Extracted inputs occupy about 335 MB, with additional
-temporary space used while decoding.
+The compressed inputs total 34.7 MB. Processed scores for all three chromosomes
+would exceed the 100 MB example budget, so this tutorial uses chromosome III.
+Checksums are in `SHA256SUMS`; data generation and model details are in
+`provenance.json`. Those scoring tools were used to prepare the files and are
+not AltAnn dependencies.
 
-Use AltAnn 0.1.1 or later, Python 3.9 or later, and Perl with either a built checkout or an
-extracted release package. Perl converts the supplied PSAURON CSV files.
-See the [installation instructions](../README.md#install-a-release) for the
-release packages and [build instructions](../README.md#build-from-source-developers)
-for a source checkout. The supplied scores are ready to use; no GPU, model
-training, or scoring software installation is needed.
+## Prepare the input files
 
-Run these commands from the repository root after building AltAnn:
+Use AltAnn 0.2.0 or later and Python 3.9 or later. Follow the repository's
+[build instructions](../README.md#build-from-source-developers), or download a
+[release package](https://github.com/hibiki-kato/AltAnn/releases).
+Run these commands from the repository root:
 
 ```sh
 python3 example/prepare.py
-bin/altann decode --manifest example/work/inputs.tsv \
-  --k 10 --threads 4 --output example/results/spom.gff3
 ```
 
-With a release package, use its `bin/altann` path in the second command.
-The preparation step decompresses the score tables and writes a FASTA for
-each chromosome and strand. Minus-strand FASTAs are reverse complemented;
-their supplied scores use the same orientation. `inputs.tsv` lists all six
-jobs. AltAnn converts the final GFF coordinates back to the original genome.
+This only decompresses the supplied files into `example/work/inputs/`.
+It does not calculate scores or reverse sequences. Each orientation contains
+one FASTA and `out.ps.txt`, `out.gt.txt`, `out.ag.txt`, `out.atg.txt`, and
+`out.stop.txt`. The latter four files are position-specific transition scores.
+The legacy emission format has N, E0, E1, E2, and a shared I score for the three
+intron states, giving the seven-state UniAnn model.
 
-`--k 10` retains up to ten paths per state during local decoding. Use
-`--k 5` for fewer candidates. K does not specify the number of exported
-transcripts: the UniAnn best is retained as rank 0, duplicate intron chains
-are removed, and a path can contain more than one gene. `--threads 4` sets
-the number of workers for local searches; `--threads auto` uses the available
-CPU count.
+## Decode the forward input
 
-The run writes three files:
+```sh
+bin/altann decode --input example/work/inputs/NC_003421.2/plus \
+  --rerun-viterbi --k 10 --threads 4 --output example/results/chr3.plus.gff3
+```
 
-| File | Contents |
-| --- | --- |
-| `results/spom.gff3` | Transcripts, exons, and CDS features in genome coordinates |
-| `results/spom.gff3.tsv` | Candidate diagnostics in oriented input coordinates, including candidates removed during export |
-| `results/spom.gff3.json` | Input paths, parameters, scaling, counts, and elapsed times |
+The example omits the original large DP/BT logs and GFF. `--rerun-viterbi`
+explicitly reconstructs the best path from the prepared scores before K-best
+search. Normal operation can reuse a matching UniAnn GFF and log instead;
+see [input formats](../docs/format.md).
 
-These paths are relative to `example/`. Both `work/` and `results/` are
-ignored by Git.
+## Decode the reverse input separately
 
-With the commands above, AltAnn 0.1.1 exports 12,694 transcripts: 4,468 complete
-UniAnn references and 8,226 alternatives. One incomplete chromosome-end model
-is excluded. Changing K or filtering options changes the candidate count.
+```sh
+bin/altann decode --input example/work/inputs/NC_003421.2/minus \
+  --reverse --rerun-viterbi --k 10 --threads 4 \
+  --output example/results/chr3.minus.gff3
+```
 
-GFF column 6 is `.`. Transcript attributes contain `kbest_score`,
-`kbest_reference_score`, `kbest_delta`, `kbest_rank`, and `kbest_origin`.
-The delta is the candidate path score minus the UniAnn best score over the
-same local interval. Scores describe whole paths and should be compared
-within the same locus; they are not probabilities. See the
-[output reference](../README.md#output) for all attributes.
+`--reverse` tells AltAnn that this sequence has already been reverse
+complemented. All scores use that sequence's coordinates. AltAnn leaves these
+inputs unchanged and maps only the output GFF to the original chromosome,
+using the negative strand. One run always processes one direction.
 
-The genome is the NCBI RefSeq assembly `GCF_000002945.2` (ASM294v3).
-The decoded chromosomes are `NC_003424.3`, `NC_003423.3`, and `NC_003421.2`.
-Coding probabilities were generated with PSAURON 1.1.3. Site probabilities
-were generated with the saved ConvMamba model trained for S. pombe in the
-ChimAnn example. The genome is NCBI reference data, and the score tables are
-derived model predictions. AltAnn's GPLv3 license and UniAnn attribution
-cover the software; see [source credits](../THIRD_PARTY.md) for its origins.
+For release packages, replace `bin/altann` with the extracted package's launcher
+path. `--threads auto` uses available CPUs; `--k 5` retains fewer local paths.
+K is not a count of exported isoforms: duplicate intron chains are removed,
+and a path can contain more than one gene.
+
+## Read the output
+
+Each run writes its GFF, a `.gff3.tsv` diagnostics table, and `.gff3.json`
+provenance file. `example/work/` and `example/results/` are ignored by Git.
+The GFF contains transcripts, exons, and CDS. Column 6 is `.`; transcript
+attributes carry `kbest_score`, `kbest_reference_score`, `kbest_delta`,
+`kbest_rank`, and `kbest_origin`. Rank 0 is the UniAnn reference. Path scores
+are comparable within a locus and are not probabilities.
+
+Both GFF files use the original chromosome coordinates and different strand
+signs. They can be combined by a downstream GFF tool if a single annotation
+file is needed. AltAnn does not decode both directions in the same invocation.
