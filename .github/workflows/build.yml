@@ -1,0 +1,75 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            platform: linux-amd64
+          - runner: ubuntu-22.04-arm
+            platform: linux-arm64
+          - runner: macos-15-intel
+            platform: macos-amd64
+          - runner: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install macOS OpenMP
+        if: runner.os == 'macOS'
+        run: brew install libomp
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DALTANN_RELEASE_BUILD=ON
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Check prefix installation
+        run: |
+          cmake --install build --prefix "$RUNNER_TEMP/altann"
+          "$RUNNER_TEMP/altann/bin/altann" --version
+          python3 tests/check_install.py "$RUNNER_TEMP/altann/bin/altann"
+      - name: Package runtime and scripts
+        run: python3 scripts/package_release.py --prefix "$RUNNER_TEMP/altann" --output "dist/altann-${{ matrix.platform }}.tar.gz"
+      - name: Check packaged installation
+        run: |
+          mkdir -p "$RUNNER_TEMP/unpacked"
+          tar -xzf "dist/altann-${{ matrix.platform }}.tar.gz" -C "$RUNNER_TEMP/unpacked"
+          python3 tests/check_install.py "$RUNNER_TEMP/unpacked/altann-${{ matrix.platform }}/bin/altann"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: altann-${{ matrix.platform }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: altann-*
+          merge-multiple: true
+          path: dist
+      - name: Tag and publish tested version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/publish_release.py

@@ -1,0 +1,7 @@
+/build/
+/build-*/
+/dist/
+/stage/
+__pycache__/
+*.py[cod]
+.altann-*/

@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Launch AltAnn from a source checkout or a conventional prefix installation."""
+from pathlib import Path
+import sys
+
+prefix = Path(__file__).resolve().parent.parent
+root = prefix if (prefix / "altann" / "cli.py").is_file() else prefix / "share" / "altann"
+sys.path.insert(0, str(root))
+from altann.cli import main
+
+raise SystemExit(main())
