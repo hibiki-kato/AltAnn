@@ -71,6 +71,12 @@ baseline source.
 
 ## Orientation and output coordinates
 
+**`--reverse` requires a FASTA that you have already reverse complemented.**
+Both the base order and the bases must be transformed (A with T, C with G).
+Generate emissions and transitions for that transformed sequence; do not reuse
+the forward scores. Any supplied UniAnn GFF and Viterbi log must come from the
+same oriented input. AltAnn does not perform these input conversions.
+
 Forward is the default. For a reverse run, prepare a reverse-complemented FASTA
 and matching scores externally, then pass `--reverse`. Any supplied GFF and log
 must also use that reverse input's coordinates. The flag changes output
