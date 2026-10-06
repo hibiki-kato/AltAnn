@@ -4,7 +4,7 @@ import subprocess
 import sys
 import tempfile
 
-from fixtures import ordered_inputs, write_fixture
+from fixtures import ordered_inputs, write_fixture, write_raw_fixture
 
 launcher = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="altann-installed-") as work:
@@ -16,3 +16,11 @@ with tempfile.TemporaryDirectory(prefix="altann-installed-") as work:
         command.extend(["--" + name, value])
     subprocess.run(command, check=True, cwd=work)
     assert "kbest_origin=uniann_best" in (work / "out.gff3").read_text()
+    combined, _, _ = write_raw_fixture(work / 'stranded')
+    output = work / 'both.gff3'
+    subprocess.run([str(launcher), 'decode', '--input', str(combined['fasta'].parent),
+                    '-a', '--k', '2', '--threads', '2', '--flank', '50',
+                    '--output', str(output)], check=True, cwd=work)
+    strands = {line.split('\t')[6] for line in output.read_text().splitlines()
+               if line and not line.startswith('#')}
+    assert strands == {'+', '-'}

@@ -4,16 +4,17 @@ Alternative gene annotations through local K-best Viterbi decoding.
 
 AltAnn reads existing UniAnn inputs and produces scored alternative gene models
 in GFF3. A C++17 core handles dynamic programming and parallel local searches;
-a Python standard-library frontend reads processed score tables and exports
+a Python standard-library frontend prepares probabilities or reads processed scores and exports
 annotations in original genome coordinates. Each invocation decodes one FASTA
-record in one orientation. No UniAnn executable is required.
+record, with both strands supported by `-a` / `--all-prob`. No UniAnn
+executable is required.
 
 AltAnn builds on **[UniAnn by Aleksey Zimin](https://github.com/alekseyzimin/UniAnn)**
 and inherits its **GPLv3** license. Original author credits are retained;
 see [AUTHORS.md](AUTHORS.md) and [source provenance](THIRD_PARTY.md).
 
 Try the [S. pombe example](example/README.md) to decode chromosome III using
-supplied score files. Forward and reverse inputs are separate runs.
+supplied score files in one both-strand run.
 
 ## Install a release
 
@@ -71,6 +72,32 @@ artifacts. After the tested version is merged into main, CI automatically tags
 and publishes a new version as a GitHub Release. Existing versions are not
 overwritten; see [maintenance](docs/maintenance.md).
 
+## Decode both strands
+
+Supply the original FASTA, a six-frame PSAURON CSV generated with PSAURON
+`-a`, and a site probability table containing both `+` and `-` rows:
+
+```sh
+bin/altann decode -f chromosome.fna -p psauron_score.csv -s sites.tsv -a \
+  --k 10 --threads auto --output alternatives.gff3
+```
+
+`-a` (`--all-prob`) reverse complements the FASTA and prepares emission and
+transition scores internally using UniAnn's preprocessing rules. It computes
+an independent global reference path for each, and writes one sorted GFF3.
+The diagnostic TSV contains both strands; JSON records both jobs and the
+original input paths. No baseline log or GFF is required. An optional combined
+`--gff` is checked against the computed references; `--log` and `--reverse`
+cannot be combined with this mode.
+
+The site table uses `chrom pos strand type motif prob` columns, with an optional
+seventh rescaled probability column. Positions are one based in the original
+FASTA and mark the first motif base when read along the indicated strand.
+Sequence identifiers must match the FASTA. `-m` (`--mult`) controls probability
+rescaling as in UniAnn; the default is exp(1). Strands without a donor with a
+positive rescaled score are skipped. See the
+[detailed input contract](docs/format.md#both-strand-scores).
+
 ## Decode an existing UniAnn run
 
 ```sh
@@ -92,8 +119,8 @@ All files must describe the same sequence in the same orientation.
 
 Ambiguous file selection fails with an explanation. Explicit paths override
 score discovery: `--fasta`, `--emissions`, `--gt`, `--ag`, `--atg`, and `--stop`.
-PSAURON CSV and site probability tables must be processed by UniAnn beforehand;
-AltAnn consumes the resulting emission and transition scores.
+This mode consumes UniAnn's already processed emission and transition scores.
+Use the both-strand command above to supply PSAURON and site probabilities directly.
 
 By default, GFF and log are required. AltAnn follows the log's traceback to
 recover the baseline path, then replays that path using the supplied scores.
@@ -116,14 +143,16 @@ In this mode, `--log` is not accepted and the GFF is optional. A supplied GFF st
 checks the computed baseline. Both modes use the same seven-state model and
 local K-best search.
 
-## Reverse inputs
+## Existing oriented inputs
 
 **Before using `--reverse`, you must supply a reverse-complemented FASTA.**
 Reverse complement means reversing the sequence and replacing each base with
 its complement (A to T, T to A, C to G, G to C). Reversing the base order alone is insufficient.
-AltAnn does not perform this conversion for you.
+This flag only maps the output; the both-strand mode above prepares both
+orientations from the original sequence.
 
-One invocation processes one orientation. To annotate the opposite strand,
+In this existing mode, one invocation processes one orientation. To annotate
+the opposite strand,
 first reverse complement the FASTA outside AltAnn and produce UniAnn scores
 for that sequence. Supply those files in a separate invocation with `--reverse`:
 
@@ -153,8 +182,8 @@ by its offset. For segmented input, midpoint ownership and internal-edge
 exclusion use `--segment-overlap 4000000` and `--segment-margin 20000`. Set these
 to the segmentation settings used when preparing the inputs.
 
-Run additional sequences or orientations separately. Merge their GFF files as
-a separate downstream step if a combined annotation is needed.
+Run additional sequences separately. The both-strand mode combines both
+orientations of the same sequence in one output.
 
 ## Model and selection
 
@@ -264,6 +293,8 @@ library paths on macOS. Keep the extracted package directory intact.
 Code layout: `src/model.cpp` defines scoring; `global.cpp` reconstructs the
 reference; `local.cpp` performs K-best searches; `output.cpp` converts paths;
 `loaders.cpp` validates input tables; `altann/cli.py` handles existing files;
-`altann/convert.py` selects candidates and maps GFF coordinates. See
+`altann/preprocess.py` prepares PSAURON and site probabilities for each strand;
+`altann/strands.py` handles existing strand-tagged scores; `altann/convert.py` selects
+candidates and maps GFF coordinates. See
 [validation notes](docs/validation.md) for measured compatibility results and
 [input formats](docs/format.md) for the detailed file contract.

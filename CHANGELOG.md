@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+- Decode both strands in one invocation with `-a` / `--all-prob`, using
+  the original FASTA, six-frame PSAURON CSV, and both-strand site probabilities.
+- Prepare emission and transition scores internally with UniAnn's rules,
+  using Python's standard library. Accept `-f`, `-p`, `-s`, and `-m` inputs.
+- Recompute both baseline paths independently and export one GFF3 and diagnostics
+  table. Preserve the seven-state decoder, score precision, and CDS phase.
+- Retain processed UniAnn GFF/traceback inputs and the existing `--reverse` mode.
+- Update the chromosome III tutorial to produce one combined annotation.
+- Fix Makefile installation after removal of the Perl preprocessor.
+
 ## 0.2.0
 
 - Process one sequence and direction per invocation; use `--reverse` for input
