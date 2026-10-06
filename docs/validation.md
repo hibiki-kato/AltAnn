@@ -1,5 +1,30 @@
 # Validation
 
+## Version 0.3.0 both-strand validation
+
+The chromosome III tutorial reads a six-frame PSAURON CSV and a combined site
+probability table with the original FASTA. With K=10, flank=1,000, and four
+threads, its GFF3 and TSV are byte-identical to the two independently oriented
+processed-score runs after merging. The output contains 13,688 feature rows and
+2,222 transcripts: 787 references and 1,435 alternatives, with 1,114 plus and
+1,108 minus transcripts. The example probabilities were combined from the
+previously scored orientations without rerunning their scoring models.
+
+A separate 60,000-base sequence was scored directly with PSAURON 1.1.3 `-a`.
+All five processed score files on each strand match UniAnn's original Perl and
+shell preprocessing byte for byte. The both-strand raw AltAnn run matches two
+independent processed-score runs in all GFF fields and TSV scores. Randomized
+emission inputs, transition probabilities, and donor-factor rounding boundaries
+also match the original preprocessing numerically.
+
+Regression tests cover raw six/seven-column site probabilities and existing
+processed inputs, all sequence-length remainders, unsorted rows, distinct reverse
+frame probabilities, donorless skips, nonzero reverse CDS phase, combined GFF
+validation, segment mapping, invalid-input preservation, and deterministic
+threaded output. Installed and extracted release packages exercise raw `-a`
+inputs alongside the existing processed-score mode. The C++ decoder and its
+seven-state model are unchanged.
+
 ## Version 0.2.0 saved traceback validation
 
 The current tutorial inputs for S. pombe chromosome III were decompressed into
@@ -27,7 +52,7 @@ original UniAnn binary, checks both output orientations, and rejects corrupted
 scores, predecessor changes, missing rows, and incompatible CLI arguments.
 
 The following sections retain version 0.1.1 measurements. Their historical
-whole-genome commands are not the current one-direction tutorial.
+whole-genome commands are not the current chromosome III tutorial.
 
 ## Numerical compatibility
 

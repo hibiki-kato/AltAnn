@@ -20,14 +20,12 @@ build/altann-core: $(OBJECTS)
 test: all
 	$(PYTHON) -m unittest discover -s tests -v
 
-# Keep the Python frontend and compatibility preprocessor together. The
-# launcher resolves this directory relative to its installation prefix.
+# The launcher resolves the Python frontend relative to its installation prefix.
 install: all
-	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/share/altann/altann $(DESTDIR)$(PREFIX)/share/altann/vendor
+	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/share/altann/altann
 	install -m 755 bin/altann build/altann-core $(DESTDIR)$(PREFIX)/bin/
 	install -m 644 altann/*.py $(DESTDIR)$(PREFIX)/share/altann/altann/
-	install -m 644 vendor/*.pl $(DESTDIR)$(PREFIX)/share/altann/vendor/
-	install -m 644 LICENSE THIRD_PARTY.md $(DESTDIR)$(PREFIX)/share/altann/
+	install -m 644 LICENSE THIRD_PARTY.md AUTHORS.md $(DESTDIR)$(PREFIX)/share/altann/
 
 clean:
 	rm -rf build

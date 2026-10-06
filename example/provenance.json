@@ -48,7 +48,7 @@
     "generated_results": "ignored under example/work/"
   },
   "generated_on": "2026-09-29",
-  "distributed_inputs": "Oriented FASTA, UniAnn emission table, GT/AG/ATG/STOP transition score tables",
+  "distributed_inputs": "Original FASTA, six-frame PSAURON CSV, both-strand site probability table, and existing oriented processed UniAnn scores",
   "preprocessing": {
     "emissions": "UniAnn preprocess_psauron_scores.pl",
     "transition_scores": "UniAnn-compatible logarithmic scaling, as implemented by AltAnn 0.1.1",
@@ -58,7 +58,16 @@
       "minus": 1042
     }
   },
-  "input_bytes": 206797757,
+  "input_bytes": 214478337,
   "largest_input_bytes": 89385981,
-  "storage": "Plain files tracked by Git; no Git LFS"
+  "storage": "Plain oriented scores and gzip probability tables tracked by Git; no Git LFS",
+  "both_strand_inputs": {
+    "psauron": "Forward arrays from each saved orientation, placed in forward/reverse columns without reordering.",
+    "sites": "Combine saved orientations; reflect reverse positions with L - pos + 1 and use strand -.",
+    "compression": "gzip",
+    "sha256": {
+      "psauron_score.csv.gz": "b72e00320abed02ad640461edaa843a735d0bf4468bf015b641a5f7c11e5d357",
+      "sites.tsv.gz": "a5ec2f5143bdc0d94ac642699af6718f1c6ca74ac091b9352be0b71a47582f72"
+    }
+  }
 }

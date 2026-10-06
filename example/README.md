@@ -1,78 +1,59 @@
 # S. pombe tutorial
 
-Run AltAnn on chromosome III of *Schizosaccharomyces pombe*
-(`NC_003421.2`) using the supplied FASTA and emission and transition scores.
-The example includes only chromosome III, with inputs for both the forward
-sequence and its reverse complement. Chromosomes I and II are not included.
+Run AltAnn on both strands of chromosome III of *Schizosaccharomyces pombe*
+(`NC_003421.2`) using the supplied original FASTA, PSAURON CSV, and site probabilities.
+The example includes only chromosome III. Chromosomes I and II are not included.
 
 ## Before you start
 
-Install AltAnn 0.2.0 or later and Python 3.9 or later using the
-[installation instructions](../README.md#install-a-release).
+Build the current source or install AltAnn 0.3.0 or later and Python 3.9 or later
+using the [installation instructions](../README.md#install-a-release).
 No additional Python packages, scoring software, or GPU are needed.
 
 Run the commands below from the repository root. If you installed a release
 package, replace `bin/altann` with the extracted package's launcher path.
 
-The inputs are ready to use:
+## 1. Prepare one input set
 
-| Directory | FASTA | Scores |
-| --- | --- | --- |
-| `example/data/NC_003421.2/plus/` | `sequence.fna`: original sequence | Scores for the original sequence |
-| `example/data/NC_003421.2/minus/` | `sequence.rc.fna`: reverse complement | Scores for the reverse complement |
-
-Each directory contains the emission file `out.ps.txt` and transition files
-`out.gt.txt`, `out.ag.txt`, `out.atg.txt`, and `out.stop.txt`.
-
-## 1. Decode the forward input
+Stage the original FASTA and decompress the bundled both-strand probability tables:
 
 ```sh
-bin/altann decode --input example/data/NC_003421.2/plus \
-  --rerun-viterbi --k 10 --threads 4 --output example/results/chr3.plus.gff3
+python3 example/prepare_stranded_inputs.py
 ```
 
-`--rerun-viterbi` computes the best path from the supplied scores before
-searching for alternatives. This example uses that mode because a baseline
-GFF and Viterbi log are not included.
+This writes `sequence.fna`, `psauron_score.csv`, and `sites.tsv` into
+`example/work/NC_003421.2/`. The CSV contains all six frame arrays; the site
+probability table uses one-based original coordinates and `+`/`-` rows.
+The tables combine the previously scored forward and reverse-complemented
+sequences. Preparation does not run PSAURON or generate new probabilities.
+
+## 2. Decode both strands
+
+```sh
+bin/altann decode --input example/work/NC_003421.2 -a \
+  --k 10 --threads 4 --output example/results/chr3.gff3
+```
+
+`-a` (`--all-prob`) uses the original FASTA and the scores for both strands.
+AltAnn prepares the reverse complement and emission/transition scores internally,
+computes both reference paths, and writes one sorted GFF3 in original coordinates. A baseline
+GFF or Viterbi log is not needed for this mode.
 
 `--k 10` retains up to ten paths per state during the search. Use `--k 5` to
 retain fewer paths. K is not the number of exported isoforms.
 `--threads 4` uses four threads; use `--threads auto` to use available CPUs.
 
-## 2. Decode the reverse input
-
-**`--reverse` requires an already reverse-complemented FASTA and matching
-scores.** It does not transform the input FASTA for you.
-
-The supplied `minus/sequence.rc.fna` is already the reverse complement of
-`plus/sequence.fna`, and the scores in `minus/` match it. Use these files
-as supplied, without converting them again.
-
-```sh
-bin/altann decode --input example/data/NC_003421.2/minus \
-  --reverse --rerun-viterbi --k 10 --threads 4 \
-  --output example/results/chr3.minus.gff3
-```
-
-AltAnn maps the reverse output back to the original chromosome coordinates
-and uses strand `-`. The forward output uses strand `+`.
-Each invocation processes one direction.
-
-For your own reverse input, first reverse complement the FASTA, then generate
-scores for that sequence. Any supplied UniAnn GFF and Viterbi log must also
-match that orientation. See [input formats](../docs/format.md) for details.
+For your own input, supply a PSAURON six-frame CSV and both-strand site
+probabilities as described in [input formats](../docs/format.md#both-strand-scores).
 
 ## 3. Read the results
 
-The results are written to `example/results/`:
+`example/results/chr3.gff3` contains 2,222 transcripts with K=10:
+787 references and 1,435 alternatives. There are 1,114 plus-strand transcripts
+and 1,108 minus-strand transcripts, matching two independent oriented runs.
 
-| GFF3 file | Expected transcripts with K=10 |
-| --- | --- |
-| `chr3.plus.gff3` | 1,114: 385 references and 729 alternatives |
-| `chr3.minus.gff3` | 1,108: 402 references and 706 alternatives |
-
-Each run also writes a `.gff3.tsv` diagnostics table and a `.gff3.json` record
-of the run settings and inputs.
+The run also writes a `.gff3.tsv` diagnostics table containing both strands
+and a `.gff3.json` record of the settings and original inputs for each strand.
 
 The GFF3 contains transcripts, exons, and CDS. Column 6 is `.`; scores are
 stored in transcript attributes:
@@ -84,5 +65,3 @@ stored in transcript attributes:
 - `kbest_origin`: reference or alternative model.
 
 Path scores are comparable within a locus and are not probabilities.
-Both GFF3 files use the original chromosome coordinates, so they can be
-combined with a downstream GFF tool when a single annotation file is needed.

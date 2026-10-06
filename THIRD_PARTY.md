@@ -15,9 +15,11 @@ independent local searches. It does not use metadata-expanded states.
 
 GFF export is adapted from the same Dmel experiment's conversion script.
 Credits for the original UniAnn implementation remain with its authors and
-contributors. AltAnn reads processed emission and transition tables; UniAnn's
-PSAURON preprocessing is performed upstream of AltAnn and is not a runtime
-dependency.
+contributors. The probability preprocessing in `altann/preprocess.py` is adapted
+from UniAnn's `scripts/preprocess_psauron_scores.pl` and `scripts/uniann.sh` at
+commit `91477a69e1a949fed082c4662b348d9a7a91ca2b`. It preserves the emission
+transformation, stop-codon handling, rounding, and site probability scaling.
+The Python implementation requires no Perl runtime or UniAnn executable.
 
 ## Credits
 

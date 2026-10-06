@@ -14,7 +14,10 @@ upstream license text unchanged.
 - K defaults to 10 and is configurable. It counts retained paths before
   annotation deduplication, not a fixed number of exported isoforms.
 - Internal coordinates are zero-based half-open. GFF coordinates are one-based
-  inclusive. Minus inputs are already reverse complemented; verify reflection,
+  inclusive. In both-strand mode, site probabilities use one-based original
+  segment coordinates and PSAURON supplies six frame arrays. The frontend
+  prepares reverse inputs and processed scores. Legacy `--reverse`
+  inputs are already reverse complemented. Verify reflection,
   segment offsets, CDS phase, and ownership at overlapping segment boundaries.
 - Reference rank 0 is the actual reconstructed UniAnn best. Alternative deltas
   compare path scores over the same local interval with identical initial
