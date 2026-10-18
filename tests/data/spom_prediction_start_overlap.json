@@ -1,0 +1,62 @@
+{
+  "purpose": "Upstream native compatibility reproduction with exact real DNA and sparse site scores; emission scores are synthetic forced-path diagnostics, NOT model inference",
+  "chromosome": "NC_003423.3",
+  "original_strand": "-",
+  "oriented_chromosome_slice_0based": [
+    1750227,
+    1750764
+  ],
+  "original_genome_CDS_1based": [
+    [
+      2789546,
+      2789547,
+      0
+    ],
+    [
+      2789071,
+      2789488,
+      1
+    ]
+  ],
+  "start_0based": 1750257,
+  "donor_0based": 1750259,
+  "acceptor_0based": 1750314,
+  "spliced_start": "ATCAACTT",
+  "native_return_code": 0,
+  "oriented_sequence": "TTCTATTAGTATTGAGTTTTGTAAGTTAAAATGTCTCATTTCTACGACTTGGCTCCTAAGGACAAGGATGGAAATCCTTTTCCTTTCAGCAACTTGAAGGGTAAAGTGGTCCTTGTTGTCAATACAGCGAGCAAATGTGGATTCACTCCTCAATACAAAGGTCTTGAGGCGTTGTATCAGAAATACAAGGATAGAGGATTTATCATCCTTGGATTCCCTTGCAATCAATTTGGAAACCAAGAACCCGGTTCTGACGAAGAAATCGCTCAATTTTGCCAAAAGAACTATGGCGTAACCTTCCCTGTACTGGCCAAGATCAATGTTAATGGCGACAACGTCGACCCTGTTTATCAATTCTTGAAGAGCCAAAAGAAGCAACTTGGCCTTGAGCGTATTAAGTGGAATTTTGAAAAGTTCTTGGTCAATCGTCAAGGTCAAGTCATCGAACGCTATTCCAGTATTAGCAAGCCTGAACATCTCGAAAACGATATCGAGAGTGTCCTTTAAAAAAATACTGGAACAAATTTGCAGTGTAAG",
+  "local_CDS_1based": [
+    [
+      31,
+      32,
+      0
+    ],
+    [
+      90,
+      507,
+      1
+    ]
+  ],
+  "original_candidate": "NC_003423.3.minus.kbest.locus235.k9.g1.t1",
+  "original_CDS_1based": [
+    [
+      2789546,
+      2789547,
+      0
+    ],
+    [
+      2789071,
+      2789488,
+      1
+    ]
+  ],
+  "actual_inference_site_probabilities": {
+    "start": 0.5551663041114807,
+    "donor": 4.784379143529804e-06,
+    "acceptor": 0.29358240962028503
+  },
+  "native_CDS": [
+    "NC_003423.3\tUniAnn\tCDS\t31\t32\t-5130.7\t+\t.\tParent=sequence.fna.1;state=E0",
+    "NC_003423.3\tUniAnn\tCDS\t90\t507\t155.48\t+\t.\tParent=sequence.fna.1;state=E0"
+  ],
+  "native_command_artifact": "gpu-run-20261013/nonATG-native-reproduction/provenance.json"
+}

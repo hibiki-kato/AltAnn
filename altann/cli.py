@@ -42,7 +42,7 @@ def parser():
     p.add_argument('--version', action='version', version=f'AltAnn {__version__}')
     sub = p.add_subparsers(dest='command', required=True)
     d = sub.add_parser('decode', help='Decode one sequence using PSAURON/site probabilities or processed UniAnn scores.')
-    d.add_argument('--input', type=Path, help='Directory containing exactly one sequence and its scores.')
+    d.add_argument('--input', type=Path, help='Directory containing exactly one sequence and its scores; prefer processed out.ps.txt when present.')
     for key in FILE_KEYS:
         names = ('--best-gff', '--gff') if key == 'best_gff' else ('--' + key.replace('_', '-'),)
         if key in ('fasta', 'psauron', 'scores'):
@@ -51,7 +51,7 @@ def parser():
     d.add_argument('-m', '--mult', type=float, default=2.71828182845905,
                    help='Site probability multiplier before logarithmic scaling, between 1 and 100 (default: exp(1)).')
     d.add_argument('--reverse', action='store_true', help='Input is already reverse complemented; map output coordinates back and use the negative strand.')
-    d.add_argument('-a', '--all-prob', dest='both_strands', action='store_true', help='Decode both strands from the original FASTA, six-frame PSAURON CSV, and site probabilities; recompute both reference paths.')
+    d.add_argument('-a', '--all-prob', dest='both_strands', action='store_true', help='Decode both strands from the original FASTA and strand-tagged processed UniAnn scores, or legacy six-frame PSAURON/site probabilities selected with --psauron or --scores; recompute both reference paths.')
     d.add_argument('--rerun-viterbi', action='store_true', help='Recompute the reference path from scores instead of requiring a UniAnn GFF and DP/BT log.')
     d.add_argument('--seqid', help='Chromosome identifier used in exported GFF3.')
     d.add_argument('--offset', type=int, help='Zero-based segment start in the original chromosome.')
@@ -99,9 +99,7 @@ def job_from_args(args):
             raise ValueError('PSAURON/site probabilities cannot be combined with processed score arguments')
         raw = True
     else:
-        raw = not any(job[key] for key in processed) and (
-            not (directory / 'out.ps.txt').is_file() or
-            (args.both_strands and (directory / 'psauron_score.csv').is_file()))
+        raw = not any(job[key] for key in processed) and not (directory / 'out.ps.txt').is_file()
     if raw:
         if args.log:
             raise ValueError('--log requires processed UniAnn score files')

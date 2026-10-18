@@ -2,11 +2,11 @@
 
 Alternative gene annotations through local K-best Viterbi decoding.
 
-AltAnn reads existing UniAnn inputs and produces scored alternative gene models
+AltAnn reads standardized UniAnn scores and produces scored alternative gene models
 in GFF3. A C++17 core handles dynamic programming and parallel local searches;
 a Python standard-library frontend prepares probabilities or reads processed scores and exports
 annotations in original genome coordinates. Each invocation decodes one FASTA
-record, with both strands supported by `-a` / `--all-prob`. No UniAnn
+record, with strand-tagged processed inputs supported by `-a` / `--all-prob`. No UniAnn
 executable is required.
 
 AltAnn builds on **[UniAnn by Aleksey Zimin](https://github.com/alekseyzimin/UniAnn)**
@@ -72,7 +72,50 @@ artifacts. After the tested version is merged into main, CI automatically tags
 and publishes a new version as a GitHub Release. Existing versions are not
 overwritten; see [maintenance](docs/maintenance.md).
 
-## Decode both strands
+## Current UniAnn coding-frame inputs
+
+UniAnn upstream `6fe3d46` replaces PSAURON preprocessing with
+`scripts/convert_coding_frame.pl`, using Bowen's local coding-frame probabilities.
+Its output is still `out.ps.txt`; the five emission columns and seven-state
+Viterbi model are unchanged. AltAnn consumes these processed emissions and
+the four `out.*` transition tables directly, without additional calibration or
+score transformation. Neither cnn-mamba nor a global-frame prediction
+file is required by AltAnn.
+
+The actual predictor is [Bowen's cnn-mamba](https://github.com/bowencccc/cnn-mamba).
+The unpatched UniAnn `6fe3d46` interface has three discrepancies: header handling,
+a one-frame indexing offset, and repeated temperature scaling. Local UniAnn
+fixes accept Bowen's header, map local class `i` at position `n` to `(n-i)%3`,
+and remove the temporary `T=7` transform. Real S. pombe reference CDS coordinates
+confirm the frame convention on both strands. AltAnn consumes the corrected
+scores without changing its K-Viterbi algorithm. Real inference and reference
+evaluation completed on all three S. pombe nuclear chromosomes in both
+orientations after host GPU access was enabled. The audit also identifies
+shared UniAnn limitations involving splice-junction stops and overlapping
+start/donor motifs; see the [S. pombe validation report](docs/spom-validation.md).
+See the [verified model contract](docs/format.md#cnn-mamba-contract-and-discrepancies).
+
+```sh
+bin/altann decode --input /path/to/uniann-job --rerun-viterbi \
+  --k 10 --threads auto --output alternatives.gff3
+```
+
+Use the FASTA from that exact UniAnn job. To reuse its saved reference path,
+supply `--gff genome.fa.uniann.gff --log out.err` instead of
+`--rerun-viterbi`. For a separately scored reverse-complemented FASTA, add
+`--reverse` to map the output back to the original chromosome. Run each
+chromosome and orientation separately with the current UniAnn outputs.
+UniAnn's latest wrapper disables its former both-strand helper; its ordinary
+score tables have no strand column. AltAnn's `-a` requires combined
+strand-tagged processed tables or legacy PSAURON inputs as described below.
+
+Directory discovery prefers `out.ps.txt` even if a legacy `psauron_score.csv`
+is also present. Raw PSAURON preprocessing remains available through explicit
+`--psauron` and `--scores` arguments. See the
+[coding-frame score contract](docs/format.md#current-coding-frame-conversion)
+for upstream calibration and coordinate details.
+
+## Legacy PSAURON inputs on both strands
 
 Supply the original FASTA, a six-frame PSAURON CSV generated with PSAURON
 `-a`, and a site probability table containing both `+` and `-` rows:
@@ -226,8 +269,9 @@ most two exons and at most 200 coding bases. It is disabled by default so this
 filter is an explicit choice.
 
 The model follows the coarse-state UniAnn snapshot documented in
-[THIRD_PARTY.md](THIRD_PARTY.md). Other UniAnn versions or customized scoring
-rules may produce a different global best and must be checked before use.
+[THIRD_PARTY.md](THIRD_PARTY.md). Its native state definitions and transition
+rules remain unchanged in upstream `6fe3d46`; the new coding-frame converter
+feeds that same model. Customized scoring rules must be checked before use.
 
 ## Output
 

@@ -1,0 +1,15 @@
+coding_fixture	61	+	start	.	0.99
+coding_fixture	182	+	donor	.	0.99
+coding_fixture	240	+	acceptor	.	0.99
+coding_fixture	243	+	acceptor	.	0.985
+coding_fixture	451	+	stop	.	0.99
+coding_fixture	662	+	start	.	0.99
+coding_fixture	783	+	donor	.	0.99
+coding_fixture	842	+	acceptor	.	0.99
+coding_fixture	845	+	acceptor	.	0.985
+coding_fixture	1053	+	stop	.	0.99
+coding_fixture	1263	+	start	.	0.99
+coding_fixture	1384	+	donor	.	0.99
+coding_fixture	1444	+	acceptor	.	0.99
+coding_fixture	1447	+	acceptor	.	0.985
+coding_fixture	1655	+	stop	.	0.99

@@ -1,5 +1,99 @@
 # Validation
 
+## Corrected UniAnn interface and S. pombe reference audit
+
+Local UniAnn fixes accept Bowen's header, validate dense sequence alignment,
+map local codon offsets with `(n-i)%3`, and remove temporary per-column `T=7`
+scaling. The wrapper regenerates emissions and propagates failures. The
+`bowen-corrected` fixture replays the original frozen synthetic-logit export
+through these fixes and a fresh native decoder. All 80 AltAnn tests pass with
+the historical numerical oracle enabled, with no skips. UniAnn's 12 converter
+and wrapper tests and cnn-mamba's three checkpoint-metadata tests also pass.
+The K-Viterbi implementation and candidate selection are unchanged.
+
+An independent biological audit of the existing nuclear S. pombe reference
+validates 4,314 complete CDS models (2,133 plus; 2,181 minus), 8,672 CDS
+segments and 43,251 frame probes. Seven real-DNA/GFF cases are frozen in
+`UniAnn/tests/data/spom_reference_frames.json`; test probabilities are derived
+from annotations, so they are not model predictions.
+
+After host GPU access was enabled and the missing pysam dependency installed,
+real CNN-Mamba → UniAnn → AltAnn runs completed on all three nuclear chromosomes
+in both orientations. Every saved-trace and recomputed-Viterbi GFF/TSV pair
+matches byte for byte. The Human checkpoint gives 1,849 exact best-path CDS
+matches and 2,262 in the candidate pool, with 8,184 alternative transcripts.
+No legacy scores were substituted. GFF3 structure/phases pass, while 116 models
+have splice-junction internal stops and one has an overlapping start/donor
+motif producing a non-ATG CDS start; native reproductions demonstrate shared
+UniAnn limitations. No candidate filtering or transition changes were made.
+See [the dataset, metrics, commands, and remaining work](spom-validation.md).
+
+## UniAnn coding-frame integration
+
+UniAnn was updated to upstream `6fe3d46efacf1f900789a4cfa6d103c69dfe6ac0`.
+Its native decoder source is unchanged from `91477a6`; the wrapper now uses
+`convert_coding_frame.pl` for local coding-frame probabilities. The regression
+fixture in `tests/data/coding-frame/` comes from that upstream converter,
+site-score preprocessing, and native decoder, using synthetic probabilities.
+It covers all three initial exon frames, intron lengths 60/61/62, fractional
+emissions, stop penalties, alternative acceptors, and CDS phase 2 after splicing.
+These are compatibility tests, not model-accuracy or calibration measurements.
+The initial converter suite passed all 52 tests, including the historical
+Dmel K-best comparison with `ALTANN_REFERENCE_BINARY` set to the original
+patched binary.
+
+A fresh installation staged in a temporary directory ran the updated UniAnn
+wrapper end to end. Its five processed score files matched the regression
+fixture byte for byte. AltAnn consumed the wrapper's saved `out.err` and
+filtered annotation using directory discovery, with K=10 and flank=50,
+producing three reference transcripts and four alternatives. ChimAnn's
+`bin/merge_altann.py` accepted that output alongside the UniAnn annotation,
+and gffread 0.12.8 accepted the merged GFF with seven transcripts and 13 CDS
+features. The existing EviAnn integration consumes this merged GFF through `-c`;
+EviAnn itself was not rerun for this small fixture.
+
+Bowen's actual predictor is `cnn-mamba`, not the older `SpliceSiteCNN`
+repository. It was checked out at `809f74379efccf70ee7fd876dc95aabe5a4b0ea7`.
+Its CNN/bidirectional-Mamba backbone feeds splice and start/stop heads, plus
+a dilation-3 frame branch with a four-class joint frame head. The published
+checkpoint was inspected on CPU: it has eight blocks, feature width 192,
+kernel size 7, 10 kb windows, 5 kb stride, and a `[4,192]` joint-head weight
+matrix. It contains no embedded temperature; calibration is a separate JSON.
+It implements validation-fitted multiclass logit temperature scaling. The published Human
+model's temperature is `1.2288177735743935`; inference uses `T=1` unless a
+temperature or calibration JSON is supplied explicitly.
+
+Comparing its actual label and export implementation with UniAnn identified
+three upstream discrepancies: the exported TSV header is treated as a base;
+the converter's `(n-i-1)%3` permutation is one frame off relative to Bowen's
+first-codon-base-is-0 labels; and the converter's independent `T=7` probability
+transform runs even after model calibration. The original synthetic converter
+fixture deliberately follows the converter's permutation and cannot establish
+that Bowen's labels are interpreted correctly.
+
+The additional `tests/data/bowen-contract/` fixture uses synthetic logits with
+the actual phase-label function, NumPy temperature utility, and TSV exporter,
+followed by the unmodified UniAnn converter and native decoder. Its diagnostic
+tests record the original header, frame, and temperature discrepancies; its
+decoding regressions check that AltAnn preserves those saved score files and
+reproduces the native traceback exactly. Runtime tests remain independent of
+cnn-mamba, NumPy, pandas, and PyTorch. Regeneration uses those packages on CPU.
+CUDA was unavailable during this initial fixture investigation; the later
+real GPU run is reported above.
+AltAnn still requires no direct model dependency and adds no calibration.
+All 59 AltAnn tests passed, including the historical reference comparison,
+with no skips. Regeneration reproduced all 14 Bowen contract artifacts byte
+for byte. Two existing cnn-mamba calibration tests (ambiguous-label masking
+and temperature fitting/argmax preservation) also passed on CPU, executing
+their unchanged methods separately from the GPU-dependent model suite.
+
+The current UniAnn wrapper disables its former both-strand helper. Its existing
+installed `bin/` files were preserved during the repository update; the test
+installation used the updated tracked scripts and a fresh native build.
+ChimAnn's current `modules/altann.nf` still invokes legacy raw PSAURON mode.
+Migrating that workflow to publish and pass the new oriented score files is
+separate from this standalone AltAnn compatibility change.
+
 ## Version 0.3.0 both-strand validation
 
 The chromosome III tutorial reads a six-frame PSAURON CSV and a combined site

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Complete real CNN-Mamba → UniAnn → AltAnn validation on all S. pombe nuclear
+  chromosomes and both strands; add evaluation and spliced-CDS audit scripts
+  with real-DNA regressions for shared upstream biological limitations.
+- Validate the local UniAnn header/frame/calibration fixes with corrected
+  score fixtures and a real S. pombe reference-coordinate audit; document the
+  remaining GPU/model-output blocker separately from prediction accuracy.
+- Consume UniAnn `6fe3d46` coding-frame emissions through the existing processed
+  score interface, without a model runtime or additional calibration.
+- Prefer processed scores during directory discovery even with `-a` and a
+  leftover PSAURON CSV; retain explicit legacy raw-input support.
+- Document local-to-absolute frame conversion, upstream score calibration,
+  and the current oriented UniAnn workflow.
+- Add upstream-generated coding-frame fixtures and regressions for all frames,
+  splice phases, score replay, alternative acceptors, and reverse coordinates.
+- Inspect the actual cnn-mamba exporter and calibration, add reproducible
+  downstream contract diagnostics, and document upstream header handling,
+  one-frame indexing offset, and repeated temperature transformations.
+
 ## 0.3.0
 
 - Decode both strands in one invocation with `-a` / `--all-prob`, using
