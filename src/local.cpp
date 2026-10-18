@@ -164,8 +164,29 @@ vector<LocalPathResult> search_paths(
     return paths;
 }
 
-// Distinct state paths may describe the same complete annotation. Collapse
-// those duplicates while retaining score order and every gene on each path.
+// Coding intervals are ordered by genomic coordinate. Require a shared coding
+// base, rather than overlapping transcript spans: a separate gene can sit
+// entirely inside this reference's intron or within its search flank.
+bool shares_cds_base(const TranscriptAnnotation &reference,
+                     const TranscriptAnnotation &candidate) {
+    if (reference.sequence_id != candidate.sequence_id ||
+        reference.strand != candidate.strand) return false;
+    size_t i = 0, j = 0;
+    while (i < reference.cds_intervals.size() &&
+           j < candidate.cds_intervals.size()) {
+        const auto &a = reference.cds_intervals[i];
+        const auto &b = candidate.cds_intervals[j];
+        if (max(a.start_0based, b.start_0based) <
+            min(a.end_0based_exclusive, b.end_0based_exclusive)) return true;
+        if (a.end_0based_exclusive <= b.end_0based_exclusive) ++i;
+        else ++j;
+    }
+    return false;
+}
+
+// Distinct state paths may describe the same retained annotation. Filter each
+// path to genes sharing CDS bases with its own global-best reference, then
+// collapse duplicates while retaining the original whole-path score order.
 vector<LocalKBestCandidate> rank_annotations(
     const vector<LocalPathResult> &paths, const TranscriptAnnotation &ref,
     const string &seqid, double ref_fixed_score, int K
@@ -173,21 +194,23 @@ vector<LocalKBestCandidate> rank_annotations(
     vector<LocalKBestCandidate> unique_candidates;
     set<string> seen;
 
-    // A local path is one candidate. Paths that annotate nothing (all N) are
-    // dropped; paths carrying several genes are kept and reported as several
-    // gene records under the same rank.
+    // A local path is one candidate. Unrelated genes do not reach the output or
+    // consume ranks. Multiple overlapping genes still share one path rank.
     int rank_count = 0;
     for (const auto &path : paths) {
         auto anns = build_transcript_annotations(path.path_positions, path.path_states, seqid);
-        if (anns.empty()) continue;
+        vector<size_t> retained;
+        for (size_t j = 0; j < anns.size(); ++j)
+            if (shares_cds_base(ref, anns[j])) retained.push_back(j);
+        if (retained.empty()) continue;
 
         string key;
-        for (const auto &ann : anns) key += full_transcript_key(ann) + "|";
+        for (size_t j : retained) key += full_transcript_key(anns[j]) + "|";
         if (!seen.insert(key).second) continue;
 
         ++rank_count;
         const string ref_key = full_transcript_key(ref);
-        for (size_t j = 0; j < anns.size(); ++j) {
+        for (size_t j : retained) {
             TranscriptAnnotation ann = anns[j];
             ann.score = path.score;
 
@@ -198,11 +221,13 @@ vector<LocalKBestCandidate> rank_annotations(
             cand.score_delta = path.score - ref_fixed_score;
             cand.actual_start_score = j < path.start_scores.size()
                 ? path.start_scores[j] : NEG_INF;
+            // Preserve original path membership and start-score indexing even
+            // when unrelated genes were omitted from the exported annotation.
             cand.genes_in_path = static_cast<int>(anns.size());
             cand.gene_in_path = static_cast<int>(j) + 1;
             cand.classification = classify_splice_difference(ref, ann);
             cand.identical_to_reference =
-                (anns.size() == 1 && full_transcript_key(ann) == ref_key);
+                (retained.size() == 1 && full_transcript_key(ann) == ref_key);
             unique_candidates.push_back(cand);
         }
         if (rank_count >= K) break;

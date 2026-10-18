@@ -51,6 +51,11 @@ install(FILES LICENSE THIRD_PARTY.md AUTHORS.md DESTINATION share/altann)
 include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+    add_executable(test-orf-overlap
+        tests/test_orf_overlap.cpp src/model.cpp src/output.cpp src/output_files.cpp)
+    target_link_libraries(test-orf-overlap PRIVATE OpenMP::OpenMP_CXX)
+    target_compile_options(test-orf-overlap PRIVATE -Wall -Wextra)
+    add_test(NAME orf-overlap COMMAND test-orf-overlap)
     add_test(NAME integration COMMAND ${CMAKE_COMMAND} -E env
         "ALTANN_CORE=$<TARGET_FILE:altann-core>"
         ${Python3_EXECUTABLE} -m unittest discover -s tests -v)

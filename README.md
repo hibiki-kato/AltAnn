@@ -257,12 +257,22 @@ end states are N. Boundary history comes from the global N prefix. A start
 codon may not extend before the local window. Complete genes are exported;
 partial terminal predictions are not completed by this local search.
 
+An alternative is retained only if its CDS shares at least one genomic base
+with the CDS of its own global-best reference transcript, on the same sequence
+and strand. Overlapping start-to-stop spans alone are insufficient: independent
+ORFs entirely inside a reference intron or in the intergenic flanks are excluded.
+This overlap rule always retains the global-best reference. A local path can still
+contain other genes; only overlapping alternatives are ranked and exported,
+while their scores remain scores of the complete local path. Diagnostic
+`genes_in_path` and `gene_in_path` describe that original path.
+
 Reference transcripts are retained with rank 0. Candidates use the original
 local decoder ranks, up to K. Intron chains are deduplicated within each locus;
 the reference takes precedence over alternatives sharing its chain. Empty
 chains (single-exon models) also deduplicate within the locus. K is the number
 of retained local paths, not a promise of K exported isoforms. A path may
-contain several genes. Selection happens before optional output filtering.
+contain several genes; disjoint genes are excluded before annotation ranking.
+Selection happens before optional output filtering.
 
 `--short-cds-filter` reproduces the Dmel export rule: omit transcripts with at
 most two exons and at most 200 coding bases. It is disabled by default so this

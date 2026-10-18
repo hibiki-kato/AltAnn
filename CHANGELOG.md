@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Retain local alternatives only when their CDS overlaps their own global-best
+  reference CDS; exclude independent flank and intronic ORFs before ranking
+  without changing the reference models, path scores or Viterbi decoding.
 - Complete real CNN-Mamba → UniAnn → AltAnn validation on all S. pombe nuclear
   chromosomes and both strands; add evaluation and spliced-CDS audit scripts
   with real-DNA regressions for shared upstream biological limitations.
