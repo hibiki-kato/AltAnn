@@ -38,6 +38,7 @@ struct LocalKBestCandidate {
     int genes_in_path = 1;
     int gene_in_path = 1;
     string classification;
+    double splice_jaccard = 1.0;
     bool identical_to_reference;
     TranscriptAnnotation transcript;
 };
@@ -226,6 +227,7 @@ vector<LocalKBestCandidate> rank_annotations(
             cand.genes_in_path = static_cast<int>(anns.size());
             cand.gene_in_path = static_cast<int>(j) + 1;
             cand.classification = classify_splice_difference(ref, ann);
+            cand.splice_jaccard = splice_site_jaccard(ref, ann);
             cand.identical_to_reference =
                 (retained.size() == 1 && full_transcript_key(ann) == ref_key);
             unique_candidates.push_back(cand);
@@ -349,7 +351,8 @@ LocusOutput decode_locus(
                 << tsv_escape_chain(ref) << '\t'
                 << (cand.identical_to_reference ? "1" : "0") << '\t'
                 << cand.classification << '\t' << L_bound + 1 << '\t'
-                << R_bound + 1 << '\t' << initial_metadata.inter_len << '\n';
+                << R_bound + 1 << '\t' << initial_metadata.inter_len << '\t'
+                << cand.splice_jaccard << '\n';
     }
 
     return {gff_out.str(), reference_out.str(), tsv_out.str(), {}};
@@ -374,7 +377,8 @@ bool run_local_k_best(
             << "reference_fixed_interval_score\tscore_delta\t"
             << "actual_start_score\tintron_chain\t"
             << "reference_intron_chain\t"
-            << "identical_to_reference\tclassification\twindow_start_1based\twindow_end_1based\tinitial_inter_len\n";
+            << "identical_to_reference\tclassification\twindow_start_1based\twindow_end_1based\tinitial_inter_len\t"
+            << "splice_site_jaccard\n";
 
     // Each locus writes to independent buffers. Flush by reference index after
     // the parallel region, so scheduling never changes IDs or record order.

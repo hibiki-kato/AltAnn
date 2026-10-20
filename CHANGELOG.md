@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `altann score` to replay supplied GFF3/GTF CDS models under the native
+  model and report their delta to the global-best path on the decoder window,
+  or the first forbidden transition.
+
+- Report each candidate's donor/acceptor `splice_site_jaccard` against its
+  global-best reference in the diagnostic TSV.
+
 - Retain local alternatives only when their CDS overlaps their own global-best
   reference CDS; exclude independent flank and intronic ORFs before ranking
   without changing the reference models, path scores or Viterbi decoding.

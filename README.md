@@ -266,6 +266,12 @@ contain other genes; only overlapping alternatives are ranked and exported,
 while their scores remain scores of the complete local path. Diagnostic
 `genes_in_path` and `gene_in_path` describe that original path.
 
+The diagnostic TSV column `splice_site_jaccard` compares each candidate with
+its global-best reference: donor and acceptor positions are compared as
+separate sets, |shared| / |union|. Start and stop codons are ignored; two
+intronless models score 1, and an intronless model against a spliced one
+scores 0. It is reported only; no candidate is filtered on it.
+
 Reference transcripts are retained with rank 0. Candidates use the original
 local decoder ranks, up to K. Intron chains are deduplicated within each locus;
 the reference takes precedence over alternatives sharing its chain. Empty
@@ -314,6 +320,31 @@ Two sidecars accompany the GFF:
 
 The main GFF is atomically replaced after successful decoding and conversion.
 Input files are never modified.
+
+## Score supplied models
+
+`altann score` assigns a model score to existing CDS models, for example
+EviAnn isoforms, instead of searching for alternatives:
+
+```sh
+bin/altann score --input /path/to/uniann-job --rerun-viterbi \
+  --models eviann.gff3 --threads auto --output eviann.scores.tsv
+```
+
+It accepts the same processed inputs, `--log`/`--rerun-viterbi`, `--reverse`
+and segment options as `decode`. Transcript CDS chains are read from GFF3
+(`Parent=`) or GTF (`transcript_id`); only models on this sequence and
+orientation are scored, and the JSON sidecar counts the others. Each model
+replaces the global-best path over its span, extended to every global coding
+run it touches, and both paths are replayed over the decoder's N-bounded
+window. `delta` is therefore the model score minus the global-best score on the
+same interval: 0 for a global-best gene, and identical to `kbest_delta` for a
+single-gene K-best candidate. Models the seven-state rules cannot represent are
+reported as `forbidden`, with the first failing transition (`start`, `donor`,
+`acceptor`, `stop` or `internal_stop`) and its genomic position; malformed
+models are `unscorable`. Non-canonical donors and stops spanning a splice
+junction are common reasons, so `forbidden` means "outside the model", not
+"false".
 
 ## Performance and development
 

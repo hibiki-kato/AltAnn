@@ -105,6 +105,61 @@ void test_intron_only_and_multiple_overlapping_genes() {
     require(!selected[0].identical_to_reference && !selected[1].identical_to_reference,
             "split genes do not become reference-identical");
 }
+TranscriptAnnotation spliced(vector<GenomicInterval> cds) {
+    auto result = annotation(cds);
+    for (size_t i = 0; i + 1 < cds.size(); ++i)
+        result.junctions.push_back({cds[i].end_0based_exclusive,
+                                    cds[i + 1].start_0based - 2, '+'});
+    return result;
+}
+
+void test_splice_site_jaccard() {
+    const auto ref = spliced({{100, 200}, {300, 400}, {500, 600}});
+    auto near = [](double a, double b) { return fabs(a - b) < 1e-12; };
+    require(near(splice_site_jaccard(ref, ref), 1.0), "identical chains score 1");
+    require(near(splice_site_jaccard(ref, spliced({{90, 200}, {300, 400}, {500, 650}})), 1.0),
+            "start/stop changes do not affect splice sites");
+    require(near(splice_site_jaccard(ref, spliced({{100, 210}, {300, 400}, {500, 600}})), 3.0 / 5.0),
+            "one shifted donor breaks only that donor");
+    require(near(splice_site_jaccard(ref, spliced({{100, 200}, {500, 600}})), 2.0 / 4.0),
+            "a skipped exon removes its acceptor and donor");
+    require(near(splice_site_jaccard(ref, annotation({{100, 600}})), 0.0),
+            "an intronless candidate shares no splice sites with a spliced reference");
+    require(near(splice_site_jaccard(annotation({{100, 200}}), annotation({{150, 300}})), 1.0),
+            "two intronless models are identical");
+    auto other = ref;
+    other.strand = '-';
+    require(near(splice_site_jaccard(ref, other), 0.0), "strand must match");
+}
+
+// Exons are written as E states and the gaps between them as I states; the
+// annotation builder then derives motif coordinates with its usual offsets.
+LocalPathResult spliced_path(vector<GenomicInterval> exons, double score) {
+    auto result = path({{exons.front().start_0based, exons.back().end_0based_exclusive}},
+                       score, {1});
+    for (size_t i = 0; i + 1 < exons.size(); ++i)
+        for (int p = exons[i].end_0based_exclusive; p < exons[i + 1].start_0based; ++p)
+            result.path_states[p] = 4;
+    return result;
+}
+
+void test_ranked_candidates_report_jaccard() {
+    const auto ref_path = spliced_path({{100, 200}, {300, 400}, {500, 600}}, 85);
+    const auto ref = build_transcript_annotations(
+        ref_path.path_positions, ref_path.path_states, "fixture").at(0);
+    require(ref.junctions.size() == 2, "fixture reference has two introns");
+    const vector<LocalPathResult> paths = {
+        spliced_path({{100, 200}, {320, 420}, {520, 600}}, 100),  // 1 of 7 sites
+        spliced_path({{100, 210}, {300, 400}, {500, 600}}, 90),   // 3 of 5 sites
+    };
+    const auto all = rank_annotations(paths, ref, "fixture", 85, 10);
+    require(all.size() == 2, "every overlapping candidate is kept");
+    for (const auto &cand : all)
+        require(cand.splice_jaccard == splice_site_jaccard(ref, cand.transcript),
+                "candidates report their splice-site Jaccard");
+    require(fabs(all[0].splice_jaccard - 1.0 / 7.0) < 1e-12 &&
+            fabs(all[1].splice_jaccard - 3.0 / 5.0) < 1e-12, "fixture Jaccard values");
+}
 } // namespace
 
 int main() {
@@ -112,6 +167,8 @@ int main() {
         test_cds_overlap();
         test_filter_before_ranking_and_deduplication();
         test_intron_only_and_multiple_overlapping_genes();
+        test_splice_site_jaccard();
+        test_ranked_candidates_report_jaccard();
     } catch (const exception &error) {
         cerr << error.what() << '\n';
         return 1;

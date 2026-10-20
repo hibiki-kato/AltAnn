@@ -28,7 +28,7 @@ endif()
 
 add_executable(altann-core
     src/main.cpp src/loaders.cpp src/model.cpp src/global.cpp
-    src/local.cpp src/output.cpp src/output_files.cpp)
+    src/local.cpp src/output.cpp src/output_files.cpp src/score.cpp)
 target_link_libraries(altann-core PRIVATE OpenMP::OpenMP_CXX)
 target_compile_options(altann-core PRIVATE -Wall -Wextra)
 # Preserve the runtime search path for a user-installed OpenMP library.
@@ -56,6 +56,11 @@ if(BUILD_TESTING)
     target_link_libraries(test-orf-overlap PRIVATE OpenMP::OpenMP_CXX)
     target_compile_options(test-orf-overlap PRIVATE -Wall -Wextra)
     add_test(NAME orf-overlap COMMAND test-orf-overlap)
+    add_executable(test-score-models
+        tests/test_score_models.cpp src/model.cpp src/output.cpp src/output_files.cpp)
+    target_link_libraries(test-score-models PRIVATE OpenMP::OpenMP_CXX)
+    target_compile_options(test-score-models PRIVATE -Wall -Wextra)
+    add_test(NAME score-models COMMAND test-score-models)
     add_test(NAME integration COMMAND ${CMAKE_COMMAND} -E env
         "ALTANN_CORE=$<TARGET_FILE:altann-core>"
         ${Python3_EXECUTABLE} -m unittest discover -s tests -v)
