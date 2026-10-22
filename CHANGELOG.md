@@ -7,7 +7,8 @@
   or the first forbidden transition.
 
 - Report each candidate's donor/acceptor `splice_site_jaccard` against its
-  global-best reference in the diagnostic TSV.
+  global-best reference in the diagnostic TSV and as the GFF3 attribute
+  `kbest_splice_jaccard`.
 
 - Retain local alternatives only when their CDS overlaps their own global-best
   reference CDS; exclude independent flank and intronic ORFs before ranking

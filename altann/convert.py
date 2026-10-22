@@ -33,8 +33,12 @@ def owned(start, end, offset, stop, total, overlap, margin):
 
 
 def reference_scores(input_path):
+    """Return locus reference scores and candidate splice-site Jaccard values.
+
+    Jaccard keys are (locus, rank, gene); reports predating the column give none.
+    """
     report = Path(input_path).with_suffix('.tsv')
-    scores = {}
+    scores, jaccards = {}, {}
     with report.open() as handle:
         reader = csv.DictReader(handle, delimiter='\t')
         required = {'reference_gene_index', 'reference_fixed_interval_score'}
@@ -51,7 +55,10 @@ def reference_scores(input_path):
             if locus in scores and scores[locus] != score:
                 raise ValueError(f'Inconsistent reference score: {locus}')
             scores[locus] = score
-    return scores
+            if row.get('splice_site_jaccard'):
+                jaccards[(locus, int(row['rank']), f"g{row['gene_in_path']}")] = \
+                    format(float(row['splice_site_jaccard']), '.6g')
+    return scores, jaccards
 
 
 def convert(input_path, segment, strand, output_path, stats_path, *, chromosome,
@@ -63,7 +70,7 @@ def convert(input_path, segment, strand, output_path, stats_path, *, chromosome,
     input is reflected within its segment before adding the zero-based offset.
     """
     stop = offset + length
-    references = reference_scores(input_path)
+    references, jaccards = reference_scores(input_path)
     transcripts, children, scores = {}, [], {}
     counts = Counter(input_transcripts=0, emitted_transcripts=0, duplicate_transcripts=0,
                      short_cds_transcripts=0, boundary_transcripts=0, emitted_exons=0,
@@ -162,7 +169,11 @@ def convert(input_path, segment, strand, output_path, stats_path, *, chromosome,
             ('kbest_reference', 'uniann_best'), ('kbest_origin', t['origin']),
             ('kbest_reference_score', format(reference, 'f')), ('kbest_delta', format(delta, 'f')),
             ('kbest_rank', t['rank']), ('kbest_locus', quote(f"{segment}.{strand}.kbest.{t['locus']}", safe='._-')),
-            ('kbest_gene_in_path', quote(t['gene'], safe='._-'))])
+            ('kbest_gene_in_path', quote(t['gene'], safe='._-')),
+            # The global-best reference is its own reference, so it scores 1.
+            *([('kbest_splice_jaccard', '1' if t['rank'] == 0
+                else jaccards[(t['locus'], t['rank'], t['gene'])])]
+              if jaccards else [])])
         output.append('\t'.join(row))
         for kind, rows in [('exon', t['exons']), ('CDS', t['cds'])]:
             for index, child in enumerate(rows, 1):

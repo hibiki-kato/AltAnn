@@ -256,6 +256,21 @@ class DecoderTests(unittest.TestCase):
         self.assertTrue(all(0.0 <= float(row["splice_site_jaccard"]) <= 1.0 for row in report))
         self.assertTrue(any(float(row["splice_site_jaccard"]) < 1.0 for row in report))
 
+    def test_final_gff_carries_splice_site_jaccard(self):
+        transcripts = [attrs for _, attrs in self.run_cli("plus") if "kbest_rank" in attrs]
+        self.assertTrue(transcripts)
+        self.assertTrue(all(0.0 <= float(a["kbest_splice_jaccard"]) <= 1.0 for a in transcripts))
+        self.assertTrue(all(a["kbest_splice_jaccard"] == "1"
+                            for a in transcripts if a["kbest_rank"] == "0"))
+        report = {(row["reference_gene_index"], row["rank"], row["gene_in_path"]):
+                  row["splice_site_jaccard"] for row in read_report(self.work / "plus.gff3.tsv")}
+        for attrs in transcripts:
+            if attrs["kbest_rank"] != "0":
+                locus, rank, gene = attrs["ID"].rsplit(".kbest.", 1)[1].split(".")[:3]
+                self.assertAlmostEqual(float(attrs["kbest_splice_jaccard"]),
+                                       float(report[(locus.removeprefix("locus"), rank.removeprefix("k"),
+                                                     gene.removeprefix("g"))]), places=5)
+
     def run_score(self, models, strand, extra=(), check=True):
         output = self.work / f"{strand}.scores.tsv"
         args = [sys.executable, "-m", "altann", "score", "--models", str(models),

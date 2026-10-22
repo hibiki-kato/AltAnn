@@ -270,7 +270,9 @@ The diagnostic TSV column `splice_site_jaccard` compares each candidate with
 its global-best reference: donor and acceptor positions are compared as
 separate sets, |shared| / |union|. Start and stop codons are ignored; two
 intronless models score 1, and an intronless model against a spliced one
-scores 0. It is reported only; no candidate is filtered on it.
+scores 0. It is reported only; no candidate is filtered on it. The final
+GFF3 carries it as `kbest_splice_jaccard`, rounded to six significant
+digits (1 for references).
 
 Reference transcripts are retained with rank 0. Candidates use the original
 local decoder ranks, up to K. Intron chains are deduplicated within each locus;
@@ -304,6 +306,7 @@ scores are attributes, matching the Dmel whole-genome export convention:
 | `kbest_reference` | `uniann_best` |
 | `kbest_locus` | Unique source segment/strand/locus identifier |
 | `kbest_gene_in_path` | Gene identifier within a ranked path |
+| `kbest_splice_jaccard` | Donor/acceptor Jaccard against the global-best reference |
 
 Scores use 17 significant digits. Deltas are computed with decimal arithmetic
 from the serialized scores. These are path scores, not probabilities or
