@@ -1,0 +1,66 @@
+{
+  "upstream_commit": "6fe3d46efacf1f900789a4cfa6d103c69dfe6ac0",
+  "length": 1740,
+  "genes": [
+    {
+      "start0": 60,
+      "donor0": 181,
+      "intron_length": 60,
+      "stop0": 450,
+      "cds_1based": [
+        [
+          61,
+          181,
+          0
+        ],
+        [
+          242,
+          453,
+          2
+        ]
+      ]
+    },
+    {
+      "start0": 661,
+      "donor0": 782,
+      "intron_length": 61,
+      "stop0": 1052,
+      "cds_1based": [
+        [
+          662,
+          782,
+          0
+        ],
+        [
+          844,
+          1055,
+          2
+        ]
+      ]
+    },
+    {
+      "start0": 1262,
+      "donor0": 1383,
+      "intron_length": 62,
+      "stop0": 1654,
+      "cds_1based": [
+        [
+          1263,
+          1383,
+          0
+        ],
+        [
+          1446,
+          1657,
+          2
+        ]
+      ]
+    }
+  ],
+  "upstream_sha256": {
+    "scripts/convert_coding_frame.pl": "cd30beab226b470fc02217b47360040d2ea8ad34f4cac67e98fe012ea5a7c7bd",
+    "scripts/uniann.sh": "5fec0fede1c65e82bcee943bd7b9c9c86d5e3308fe245d1de0dba1796bd5b095",
+    "src/uniann.cpp": "8c288dcd816e7571c09eea2f0e88bfe4174d5e4360196322da3423294d66966e"
+  },
+  "gffread_version": "0.12.8"
+}

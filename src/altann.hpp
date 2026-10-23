@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -119,6 +120,7 @@ struct Options {
     string output_filename;
     string report_filename;
     string viterbi_log_filename;
+    string models_filename;
 };
 struct Fasta { string id; vector<char> sequence; };
 struct Baseline {
@@ -140,8 +142,10 @@ vector<TranscriptAnnotation> build_transcript_annotations(const vector<int> &, c
 string intron_chain_key(const TranscriptAnnotation &);
 string full_transcript_key(const TranscriptAnnotation &);
 string classify_splice_difference(const TranscriptAnnotation &, const TranscriptAnnotation &);
+double splice_site_jaccard(const TranscriptAnnotation &, const TranscriptAnnotation &);
 string tsv_escape_chain(const TranscriptAnnotation &);
 void write_hierarchical_transcript(ostream &, const TranscriptAnnotation &, const string &, const string &);
+void run_model_scoring(const string &, const vector<TranscriptAnnotation> &, const Baseline &, const ModelInputs &, const Options &);
 bool run_local_k_best(const string &, const vector<TranscriptAnnotation> &, const vector<int> &, const vector<PathMetadata> &, const ModelInputs &, const Options &);
 
 // Stage the complete output bundle; preserve prior files if publication fails.

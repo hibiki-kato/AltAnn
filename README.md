@@ -2,11 +2,11 @@
 
 Alternative gene annotations through local K-best Viterbi decoding.
 
-AltAnn reads existing UniAnn inputs and produces scored alternative gene models
+AltAnn reads standardized UniAnn scores and produces scored alternative gene models
 in GFF3. A C++17 core handles dynamic programming and parallel local searches;
 a Python standard-library frontend prepares probabilities or reads processed scores and exports
 annotations in original genome coordinates. Each invocation decodes one FASTA
-record, with both strands supported by `-a` / `--all-prob`. No UniAnn
+record, with strand-tagged processed inputs supported by `-a` / `--all-prob`. No UniAnn
 executable is required.
 
 AltAnn builds on **[UniAnn by Aleksey Zimin](https://github.com/alekseyzimin/UniAnn)**
@@ -72,7 +72,50 @@ artifacts. After the tested version is merged into main, CI automatically tags
 and publishes a new version as a GitHub Release. Existing versions are not
 overwritten; see [maintenance](docs/maintenance.md).
 
-## Decode both strands
+## Current UniAnn coding-frame inputs
+
+UniAnn upstream `6fe3d46` replaces PSAURON preprocessing with
+`scripts/convert_coding_frame.pl`, using Bowen's local coding-frame probabilities.
+Its output is still `out.ps.txt`; the five emission columns and seven-state
+Viterbi model are unchanged. AltAnn consumes these processed emissions and
+the four `out.*` transition tables directly, without additional calibration or
+score transformation. Neither cnn-mamba nor a global-frame prediction
+file is required by AltAnn.
+
+The actual predictor is [Bowen's cnn-mamba](https://github.com/bowencccc/cnn-mamba).
+The unpatched UniAnn `6fe3d46` interface has three discrepancies: header handling,
+a one-frame indexing offset, and repeated temperature scaling. Local UniAnn
+fixes accept Bowen's header, map local class `i` at position `n` to `(n-i)%3`,
+and remove the temporary `T=7` transform. Real S. pombe reference CDS coordinates
+confirm the frame convention on both strands. AltAnn consumes the corrected
+scores without changing its K-Viterbi algorithm. Real inference and reference
+evaluation completed on all three S. pombe nuclear chromosomes in both
+orientations after host GPU access was enabled. The audit also identifies
+shared UniAnn limitations involving splice-junction stops and overlapping
+start/donor motifs; see the [S. pombe validation report](docs/spom-validation.md).
+See the [verified model contract](docs/format.md#cnn-mamba-contract-and-discrepancies).
+
+```sh
+bin/altann decode --input /path/to/uniann-job --rerun-viterbi \
+  --k 10 --threads auto --output alternatives.gff3
+```
+
+Use the FASTA from that exact UniAnn job. To reuse its saved reference path,
+supply `--gff genome.fa.uniann.gff --log out.err` instead of
+`--rerun-viterbi`. For a separately scored reverse-complemented FASTA, add
+`--reverse` to map the output back to the original chromosome. Run each
+chromosome and orientation separately with the current UniAnn outputs.
+UniAnn's latest wrapper disables its former both-strand helper; its ordinary
+score tables have no strand column. AltAnn's `-a` requires combined
+strand-tagged processed tables or legacy PSAURON inputs as described below.
+
+Directory discovery prefers `out.ps.txt` even if a legacy `psauron_score.csv`
+is also present. Raw PSAURON preprocessing remains available through explicit
+`--psauron` and `--scores` arguments. See the
+[coding-frame score contract](docs/format.md#current-coding-frame-conversion)
+for upstream calibration and coordinate details.
+
+## Legacy PSAURON inputs on both strands
 
 Supply the original FASTA, a six-frame PSAURON CSV generated with PSAURON
 `-a`, and a site probability table containing both `+` and `-` rows:
@@ -214,20 +257,39 @@ end states are N. Boundary history comes from the global N prefix. A start
 codon may not extend before the local window. Complete genes are exported;
 partial terminal predictions are not completed by this local search.
 
+An alternative is retained only if its CDS shares at least one genomic base
+with the CDS of its own global-best reference transcript, on the same sequence
+and strand. Overlapping start-to-stop spans alone are insufficient: independent
+ORFs entirely inside a reference intron or in the intergenic flanks are excluded.
+This overlap rule always retains the global-best reference. A local path can still
+contain other genes; only overlapping alternatives are ranked and exported,
+while their scores remain scores of the complete local path. Diagnostic
+`genes_in_path` and `gene_in_path` describe that original path.
+
+The diagnostic TSV column `splice_site_jaccard` compares each candidate with
+its global-best reference: donor and acceptor positions are compared as
+separate sets, |shared| / |union|. Start and stop codons are ignored; two
+intronless models score 1, and an intronless model against a spliced one
+scores 0. It is reported only; no candidate is filtered on it. The final
+GFF3 carries it as `kbest_splice_jaccard`, rounded to six significant
+digits (1 for references).
+
 Reference transcripts are retained with rank 0. Candidates use the original
 local decoder ranks, up to K. Intron chains are deduplicated within each locus;
 the reference takes precedence over alternatives sharing its chain. Empty
 chains (single-exon models) also deduplicate within the locus. K is the number
 of retained local paths, not a promise of K exported isoforms. A path may
-contain several genes. Selection happens before optional output filtering.
+contain several genes; disjoint genes are excluded before annotation ranking.
+Selection happens before optional output filtering.
 
 `--short-cds-filter` reproduces the Dmel export rule: omit transcripts with at
 most two exons and at most 200 coding bases. It is disabled by default so this
 filter is an explicit choice.
 
 The model follows the coarse-state UniAnn snapshot documented in
-[THIRD_PARTY.md](THIRD_PARTY.md). Other UniAnn versions or customized scoring
-rules may produce a different global best and must be checked before use.
+[THIRD_PARTY.md](THIRD_PARTY.md). Its native state definitions and transition
+rules remain unchanged in upstream `6fe3d46`; the new coding-frame converter
+feeds that same model. Customized scoring rules must be checked before use.
 
 ## Output
 
@@ -244,6 +306,7 @@ scores are attributes, matching the Dmel whole-genome export convention:
 | `kbest_reference` | `uniann_best` |
 | `kbest_locus` | Unique source segment/strand/locus identifier |
 | `kbest_gene_in_path` | Gene identifier within a ranked path |
+| `kbest_splice_jaccard` | Donor/acceptor Jaccard against the global-best reference |
 
 Scores use 17 significant digits. Deltas are computed with decimal arithmetic
 from the serialized scores. These are path scores, not probabilities or
@@ -260,6 +323,31 @@ Two sidecars accompany the GFF:
 
 The main GFF is atomically replaced after successful decoding and conversion.
 Input files are never modified.
+
+## Score supplied models
+
+`altann score` assigns a model score to existing CDS models, for example
+EviAnn isoforms, instead of searching for alternatives:
+
+```sh
+bin/altann score --input /path/to/uniann-job --rerun-viterbi \
+  --models eviann.gff3 --threads auto --output eviann.scores.tsv
+```
+
+It accepts the same processed inputs, `--log`/`--rerun-viterbi`, `--reverse`
+and segment options as `decode`. Transcript CDS chains are read from GFF3
+(`Parent=`) or GTF (`transcript_id`); only models on this sequence and
+orientation are scored, and the JSON sidecar counts the others. Each model
+replaces the global-best path over its span, extended to every global coding
+run it touches, and both paths are replayed over the decoder's N-bounded
+window. `delta` is therefore the model score minus the global-best score on the
+same interval: 0 for a global-best gene, and identical to `kbest_delta` for a
+single-gene K-best candidate. Models the seven-state rules cannot represent are
+reported as `forbidden`, with the first failing transition (`start`, `donor`,
+`acceptor`, `stop` or `internal_stop`) and its genomic position; malformed
+models are `unscorable`. Non-canonical donors and stops spanning a splice
+junction are common reasons, so `forbidden` means "outside the model", not
+"false".
 
 ## Performance and development
 

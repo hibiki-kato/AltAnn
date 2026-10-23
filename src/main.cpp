@@ -14,6 +14,8 @@ void usage(ostream &out) {
     out << "Usage: altann-core FASTA EMISSIONS GT AG ATG STOP\n"
         << "  --output FILE --report FILE [--k 10] [--flank 1000] [--threads 0]\n"
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
+        << "  [--score-models FILE] Score supplied CDS models instead of K-best decoding;\n"
+        << "    FILE rows are ID<TAB>start-end,... (zero-based half-open); --report is unused.\n"
         << "Coordinates and sequence orientation follow the input FASTA.\n"
         << "Threads 0 selects available CPUs; flank -1 selects whole intergenic bounds.\n";
 }
@@ -30,6 +32,7 @@ int main(int argc, char **argv) {
             if (name == "--output") options.output_filename = value;
             else if (name == "--report") options.report_filename = value;
             else if (name == "--viterbi-log") options.viterbi_log_filename = value;
+            else if (name == "--score-models") options.models_filename = value;
             else if (name == "--k") options.k = integer_option(value, name);
             else if (name == "--flank") options.flank = integer_option(value, name);
             else if (name == "--threads") options.threads = value == "auto" ? 0 : integer_option(value, name);
@@ -39,16 +42,25 @@ int main(int argc, char **argv) {
         if (options.flank < -1 || options.flank > numeric_limits<int>::max() / 2)
             throw runtime_error("Flank must be -1 or a nonnegative supported distance");
         if (options.threads < 0) throw runtime_error("Threads must be nonnegative");
-        if (options.output_filename.empty() || options.report_filename.empty())
-            throw runtime_error("Both --output and --report are required");
+        const bool scoring = !options.models_filename.empty();
+        if (options.output_filename.empty() || (!scoring && options.report_filename.empty()))
+            throw runtime_error(scoring ? "--output is required"
+                                        : "Both --output and --report are required");
+        if (scoring && !options.report_filename.empty())
+            throw runtime_error("--report cannot be combined with --score-models");
         // Resolve existing symlinks and relative components before opening
         // outputs, so a typo cannot replace an input or alias another output.
         set<filesystem::path> output_paths;
         vector<string> input_paths(argv + 1, argv + 7);
         if (!options.viterbi_log_filename.empty())
             input_paths.push_back(options.viterbi_log_filename);
-        for (const string &path : {options.output_filename, options.report_filename,
-                                  options.output_filename + ".reference.gff"}) {
+        if (scoring) input_paths.push_back(options.models_filename);
+        vector<string> outputs{options.output_filename};
+        if (!scoring) {
+            outputs.push_back(options.report_filename);
+            outputs.push_back(options.output_filename + ".reference.gff");
+        }
+        for (const string &path : outputs) {
             const auto resolved = filesystem::weakly_canonical(filesystem::absolute(path));
             if (!output_paths.insert(resolved).second)
                 throw runtime_error("Output files must have distinct paths");
@@ -72,6 +84,11 @@ int main(int argc, char **argv) {
             ? decode_baseline(inputs)
             : load_baseline_log(inputs, options.viterbi_log_filename);
         const auto references = build_transcript_annotations(baseline.states, fasta.id);
+        if (scoring) {
+            run_model_scoring(fasta.id, references, baseline, inputs, options);
+            cerr << "Scored models against " << references.size() << " reference loci\n";
+            return 0;
+        }
         if (!run_local_k_best(fasta.id, references, baseline.states,
                               baseline.noncoding_prefix, inputs, options)) return 1;
         cerr << "Decoded " << references.size() << " reference loci\n";

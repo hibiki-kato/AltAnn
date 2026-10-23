@@ -80,6 +80,22 @@ class BothStrandsTests(unittest.TestCase):
         _, discovered = self.run_cli({'input': self.combined['fasta'].parent}, 'discovered', both=True)
         self.assertEqual(explicit.read_bytes(), discovered.read_bytes())
 
+    def test_processed_scores_take_priority_over_incidental_psauron_csv(self):
+        directory = self.combined['fasta'].parent
+        _, baseline = self.run_cli({'input': directory}, 'processed-baseline', both=True)
+        (directory / 'psauron_score.csv').write_text('invalid incidental legacy scores\n')
+        _, output = self.run_cli({'input': directory}, 'processed-with-csv', both=True)
+        for suffix in ('', '.tsv'):
+            self.assertEqual(Path(str(output) + suffix).read_bytes(),
+                             Path(str(baseline) + suffix).read_bytes())
+        data = json.loads(Path(str(output) + '.json').read_text())
+        self.assertEqual(len(data['jobs']), 2)
+        for job in data['jobs']:
+            for key, path in self.combined.items():
+                self.assertEqual(job['inputs'][key], str(path.resolve()))
+            self.assertNotIn('psauron', job['inputs'])
+            self.assertNotIn('scores', job['inputs'])
+
     def test_short_option_and_whitespace_in_segment_fasta(self):
         _, baseline = self.run_cli(self.combined, 'baseline', both=True)
         fasta = self.combined['fasta']

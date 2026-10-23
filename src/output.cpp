@@ -151,6 +151,32 @@ string classify_splice_difference(
     return "complex";
 }
 
+// Donor and acceptor positions are compared as separate labelled sets, so a
+// shifted splice site breaks only its own boundary rather than whole introns.
+// Two intronless models are identical under this metric.
+double splice_site_jaccard(const TranscriptAnnotation &reference,
+                           const TranscriptAnnotation &candidate) {
+    if (reference.sequence_id != candidate.sequence_id ||
+        reference.strand != candidate.strand) return 0.0;
+    auto sites = [](const TranscriptAnnotation &transcript, bool donor) {
+        vector<int> result;
+        for (const auto &junction : transcript.junctions)
+            result.push_back(donor ? junction.donor_0based : junction.acceptor_0based);
+        sort(result.begin(), result.end());
+        result.erase(unique(result.begin(), result.end()), result.end());
+        return result;
+    };
+    size_t shared = 0, total = 0;
+    for (bool donor : {true, false}) {
+        const auto a = sites(reference, donor), b = sites(candidate, donor);
+        vector<int> common;
+        set_intersection(a.begin(), a.end(), b.begin(), b.end(), back_inserter(common));
+        shared += common.size();
+        total += a.size() + b.size() - common.size();
+    }
+    return total == 0 ? 1.0 : static_cast<double>(shared) / total;
+}
+
 static string format_score(double score) {
     if (!isfinite(score) || score <= NEG_INF) return ".";
     ostringstream out;

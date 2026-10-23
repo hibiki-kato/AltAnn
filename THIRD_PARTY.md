@@ -21,6 +21,26 @@ commit `91477a69e1a949fed082c4662b348d9a7a91ca2b`. It preserves the emission
 transformation, stop-codon handling, rounding, and site probability scaling.
 The Python implementation requires no Perl runtime or UniAnn executable.
 
+Processed-score compatibility was checked against upstream UniAnn commit
+`6fe3d46efacf1f900789a4cfa6d103c69dfe6ac0`. The native `src/uniann.cpp`
+is unchanged from `91477a6`; its new `scripts/convert_coding_frame.pl` maps
+local coding-frame probabilities to the same emission columns. That converter's
+temporary calibration was not copied into AltAnn; local UniAnn fixes now
+remove it and correct header handling and local-frame indexing.
+New regression inputs are produced by the upstream converter and decoder,
+as documented in `tests/data/README.md`.
+
+The predictor contract was also reviewed against Bowen's
+[cnn-mamba](https://github.com/bowencccc/cnn-mamba) at
+`809f74379efccf70ee7fd876dc95aabe5a4b0ea7`. The `bowen-contract` fixtures
+exercise its actual phase-label, temperature, and TSV export code on synthetic
+logits. None of that model or calibration code is copied into AltAnn's runtime.
+The original model/converter discrepancies and local UniAnn fixes are
+documented in `docs/format.md`. The `bowen-corrected` fixtures replay the same
+export through corrected source scripts; these are integration regressions,
+not trained-model accuracy measurements. Real S. pombe validation status is
+recorded in `docs/spom-validation.md`.
+
 ## Credits
 
 - **Aleksey Zimin and UniAnn contributors:** original UniAnn gene prediction

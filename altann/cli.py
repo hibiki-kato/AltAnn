@@ -42,29 +42,38 @@ def parser():
     p.add_argument('--version', action='version', version=f'AltAnn {__version__}')
     sub = p.add_subparsers(dest='command', required=True)
     d = sub.add_parser('decode', help='Decode one sequence using PSAURON/site probabilities or processed UniAnn scores.')
-    d.add_argument('--input', type=Path, help='Directory containing exactly one sequence and its scores.')
-    for key in FILE_KEYS:
+    add_input_arguments(d)
+    d.add_argument('-m', '--mult', type=float, default=2.71828182845905,
+                   help='Site probability multiplier before logarithmic scaling, between 1 and 100 (default: exp(1)).')
+    d.add_argument('-a', '--all-prob', dest='both_strands', action='store_true', help='Decode both strands from the original FASTA and strand-tagged processed UniAnn scores, or legacy six-frame PSAURON/site probabilities selected with --psauron or --scores; recompute both reference paths.')
+    d.add_argument('--k', type=int, default=10, help='Retained paths per state (default: 10).')
+    d.add_argument('--short-cds-filter', action='store_true', help='Exclude models with <=2 exons and <=200 coding bases.')
+    d.add_argument('--segment-overlap', type=int, default=4_000_000)
+    d.add_argument('--segment-margin', type=int, default=20_000)
+    s = sub.add_parser('score', help='Score supplied CDS models (for example EviAnn isoforms) against the global-best path.')
+    add_input_arguments(s, keys=tuple(k for k in FILE_KEYS if k not in ('psauron', 'scores', 'best_gff')))
+    s.add_argument('--models', required=True, type=Path,
+                   help='GFF3/GTF-like annotation whose transcript CDS chains are scored; only models on this sequence and orientation are used.')
+    s.set_defaults(both_strands=False, mult=2.71828182845905, psauron=None, scores=None, best_gff=None)
+    return p
+
+
+def add_input_arguments(d, keys=FILE_KEYS):
+    d.add_argument('--input', type=Path, help='Directory containing exactly one sequence and its scores; prefer processed out.ps.txt when present.')
+    for key in keys:
         names = ('--best-gff', '--gff') if key == 'best_gff' else ('--' + key.replace('_', '-'),)
         if key in ('fasta', 'psauron', 'scores'):
             names += ({'fasta': '-f', 'psauron': '-p', 'scores': '-s'}[key],)
         d.add_argument(*names, type=Path, help=FILE_HELP[key])
-    d.add_argument('-m', '--mult', type=float, default=2.71828182845905,
-                   help='Site probability multiplier before logarithmic scaling, between 1 and 100 (default: exp(1)).')
     d.add_argument('--reverse', action='store_true', help='Input is already reverse complemented; map output coordinates back and use the negative strand.')
-    d.add_argument('-a', '--all-prob', dest='both_strands', action='store_true', help='Decode both strands from the original FASTA, six-frame PSAURON CSV, and site probabilities; recompute both reference paths.')
     d.add_argument('--rerun-viterbi', action='store_true', help='Recompute the reference path from scores instead of requiring a UniAnn GFF and DP/BT log.')
     d.add_argument('--seqid', help='Chromosome identifier used in exported GFF3.')
     d.add_argument('--offset', type=int, help='Zero-based segment start in the original chromosome.')
     d.add_argument('--sequence-length', type=int, help='Full original chromosome length.')
-    d.add_argument('--k', type=int, default=10, help='Retained paths per state (default: 10).')
     d.add_argument('--flank', type=int, default=1000)
     d.add_argument('--threads', default='auto', help='Native worker count or auto (available CPUs).')
     d.add_argument('--core', type=Path, help='Path to altann-core.')
     d.add_argument('--output', required=True, type=Path)
-    d.add_argument('--short-cds-filter', action='store_true', help='Exclude models with <=2 exons and <=200 coding bases.')
-    d.add_argument('--segment-overlap', type=int, default=4_000_000)
-    d.add_argument('--segment-margin', type=int, default=20_000)
-    return p
 
 
 def unique(directory, patterns, label, required=False):
@@ -76,7 +85,7 @@ def unique(directory, patterns, label, required=False):
     return found[0] if found else None
 
 
-def job_from_args(args):
+def job_from_args(args, require_best=True):
     """Resolve one input set, keeping both-strand preparation separate."""
     if args.both_strands and args.reverse:
         raise ValueError('--reverse cannot be combined with --all-prob')
@@ -99,9 +108,7 @@ def job_from_args(args):
             raise ValueError('PSAURON/site probabilities cannot be combined with processed score arguments')
         raw = True
     else:
-        raw = not any(job[key] for key in processed) and (
-            not (directory / 'out.ps.txt').is_file() or
-            (args.both_strands and (directory / 'psauron_score.csv').is_file()))
+        raw = not any(job[key] for key in processed) and not (directory / 'out.ps.txt').is_file()
     if raw:
         if args.log:
             raise ValueError('--log requires processed UniAnn score files')
@@ -116,13 +123,14 @@ def job_from_args(args):
                               ('ag', 'out.ag.txt'), ('atg', 'out.atg.txt'), ('stop', 'out.stop.txt')]:
             if not job[key]:
                 job[key] = unique(directory, (filename,), key, True)
-    if not job['best_gff']:
+    if not job['best_gff'] and require_best:
         job['best_gff'] = unique(directory, ('out.gff', 'uniann.gff', '*.uniann.gff'), 'UniAnn best GFF')
     if not args.rerun_viterbi and not args.both_strands and not raw:
         if not job['log']:
             job['log'] = unique(directory, ('out.err', 'uniann.log', '*.uniann.log', 'run.log'), 'UniAnn DP/BT log')
-        if not job['best_gff'] or not job['log']:
-            raise ValueError('Supply --gff and --log with a matching UniAnn DP/BT trace, '
+        if (require_best and not job['best_gff']) or not job['log']:
+            raise ValueError(('Supply --gff and --log' if require_best else 'Supply --log') +
+                             ' with a matching UniAnn DP/BT trace, '
                              'or use --rerun-viterbi to recompute the reference path')
     for key in FILE_KEYS:
         if job[key] and not job[key].is_file():
@@ -178,14 +186,14 @@ def run_process(command, log, cwd):
         raise ValueError(f'Command failed ({result.returncode}): {command[0]}\n{tail}')
 
 
-def decode(args):
-    started = time.monotonic()
-    if not 1 <= args.k <= 32767 or args.flank < 0 or args.segment_overlap < 0 or args.segment_margin < 0:
-        raise ValueError('K must be between 1 and 32767; flank and segment settings must be nonnegative')
+def thread_count(args):
     threads = (len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else os.cpu_count() or 1) if args.threads == 'auto' else int(args.threads)
     if threads < 1:
         raise ValueError('Thread count must be positive')
-    job = job_from_args(args)
+    return threads
+
+
+def find_core(args):
     core = args.core or (ROOT / 'build' / 'altann-core')
     if not Path(core).is_file():
         installed_core = ROOT.parent.parent / 'bin' / 'altann-core'
@@ -195,7 +203,16 @@ def decode(args):
             core = shutil.which('altann-core') if args.core is None else None
     if not core:
         raise ValueError('altann-core was not found; build it first or specify --core')
-    core = Path(core).resolve()
+    return Path(core).resolve()
+
+
+def decode(args):
+    started = time.monotonic()
+    if not 1 <= args.k <= 32767 or args.flank < 0 or args.segment_overlap < 0 or args.segment_margin < 0:
+        raise ValueError('K must be between 1 and 32767; flank and segment settings must be nonnegative')
+    threads = thread_count(args)
+    job = job_from_args(args)
+    core = find_core(args)
     output = args.output.resolve()
     targets = [output, Path(str(output)+'.tsv'), Path(str(output)+'.json')]
     inputs = {Path(v).resolve() for k, v in job.items() if k in FILE_KEYS and v}
@@ -226,7 +243,7 @@ def decode(args):
                                    'candidate_end_1based\tfixed_interval_score\treference_fixed_interval_score\t'
                                    'score_delta\tactual_start_score\tintron_chain\treference_intron_chain\t'
                                    'identical_to_reference\tclassification\twindow_start_1based\t'
-                                   'window_end_1based\tinitial_inter_len\n')
+                                   'window_end_1based\tinitial_inter_len\tsplice_site_jaccard\n')
         for index, job in enumerate(jobs):
             begin = time.monotonic()
             coords, segment = coordinates(job)
@@ -293,7 +310,11 @@ def decode(args):
 def main():
     args = parser().parse_args()
     try:
-        decode(args)
+        if args.command == 'score':
+            from .score import score
+            score(args)
+        else:
+            decode(args)
     except (ValueError, OSError, KeyError, ArithmeticError, csv.Error) as error:
         print(f'altann: error: {error}', file=sys.stderr)
         return 2

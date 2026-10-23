@@ -1,0 +1,18 @@
+##gff-version 3
+# gffread v0.12.8
+# gffread
+coding_fixture	UniAnn	transcript	61	453	.	+	.	ID=sequence.fna.1
+coding_fixture	UniAnn	exon	61	181	.	+	.	Parent=sequence.fna.1
+coding_fixture	UniAnn	exon	242	453	.	+	.	Parent=sequence.fna.1
+coding_fixture	UniAnn	CDS	61	181	.	+	0	Parent=sequence.fna.1
+coding_fixture	UniAnn	CDS	242	453	.	+	2	Parent=sequence.fna.1
+coding_fixture	UniAnn	transcript	662	1055	.	+	.	ID=sequence.fna.2
+coding_fixture	UniAnn	exon	662	782	.	+	.	Parent=sequence.fna.2
+coding_fixture	UniAnn	exon	844	1055	.	+	.	Parent=sequence.fna.2
+coding_fixture	UniAnn	CDS	662	782	.	+	0	Parent=sequence.fna.2
+coding_fixture	UniAnn	CDS	844	1055	.	+	2	Parent=sequence.fna.2
+coding_fixture	UniAnn	transcript	1263	1657	.	+	.	ID=sequence.fna.3
+coding_fixture	UniAnn	exon	1263	1383	.	+	.	Parent=sequence.fna.3
+coding_fixture	UniAnn	exon	1446	1657	.	+	.	Parent=sequence.fna.3
+coding_fixture	UniAnn	CDS	1263	1383	.	+	0	Parent=sequence.fna.3
+coding_fixture	UniAnn	CDS	1446	1657	.	+	2	Parent=sequence.fna.3

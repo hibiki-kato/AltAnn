@@ -1,0 +1,99 @@
+{
+  "synthetic_logits": true,
+  "checkpoint_inference": false,
+  "length": 1700,
+  "genes": [
+    {
+      "start0": 60,
+      "donor0": 181,
+      "intron_length": 60,
+      "stop0": 450,
+      "cds_1based": [
+        [
+          61,
+          181,
+          0
+        ],
+        [
+          242,
+          453,
+          2
+        ]
+      ]
+    },
+    {
+      "start0": 661,
+      "donor0": 782,
+      "intron_length": 61,
+      "stop0": 1052,
+      "cds_1based": [
+        [
+          662,
+          782,
+          0
+        ],
+        [
+          844,
+          1055,
+          2
+        ]
+      ]
+    },
+    {
+      "start0": 1262,
+      "donor0": 1383,
+      "intron_length": 62,
+      "stop0": 1654,
+      "cds_1based": [
+        [
+          1263,
+          1383,
+          0
+        ],
+        [
+          1446,
+          1657,
+          2
+        ]
+      ]
+    }
+  ],
+  "temperature": 1.2288177735743935,
+  "internal_class_order": [
+    "non_CDS",
+    "frame_0",
+    "frame_1",
+    "frame_2"
+  ],
+  "phase_labels": "............................................................0120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120............................................................12012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012................................................................................................................................................................................................................0120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120.............................................................12012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012...............................................................................................................................................................................................................0120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120120..............................................................12012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012012...........................................",
+  "minus_reflection_verified": true,
+  "bowen_commit": "809f74379efccf70ee7fd876dc95aabe5a4b0ea7",
+  "description": "Frozen synthetic-logit real-exporter TSV replayed through corrected working-tree UniAnn; not real S. pombe model predictions",
+  "uniann_base_commit": "6fe3d46efacf1f900789a4cfa6d103c69dfe6ac0",
+  "uniann_working_tree_modified": true,
+  "input_sha256": {
+    "sequence.fna": "64be004543833f139f27136f10493667860c98e88e9700e99c22b6bcc8e07540",
+    "scores.txt": "b87cea3a4d3dc384059ba46623ab7c4eecac44e1e4953b6daca9589b1c2727ce",
+    "exported.tsv": "bc72e8c8bf49d0b5e828b408e29792538ab2f61029c33d7b6c8cbf4855cd0e3a"
+  },
+  "original_provenance_sha256": "9b22a2f6b86742eb901928afdd52cafef32c7f5c8ef3ad95313cf817345e5ed8",
+  "original_source_sha256": {
+    "bowen/src/cnn_mamba/prepare_droso.py": "2104d8033fd0749929344643952caf89d5d946e70dc6ce7093ca9926f0b8b316",
+    "bowen/src/cnn_mamba/temperature_scaling.py": "7b80a9040942ab0b8449915d0d9f5e38f9dd5c025ca804579c25233cbb17acce",
+    "bowen/src/cnn_mamba/export_joint_frame_tsv.py": "be5f66fc7fbd12f0e4c2570ff1adaec0ba83aa540d1f463220ace39db81d93af",
+    "bowen/results/human_joint_frame_beta010_v1/temperature_scaling/temperature.json": "52633f955c6c0a5d16c3f78dce9dbd9c8414a51fcddd7a4ffe479ba6f44689cc",
+    "uniann/scripts/convert_coding_frame.pl": "cd30beab226b470fc02217b47360040d2ea8ad34f4cac67e98fe012ea5a7c7bd",
+    "uniann/scripts/uniann.sh": "5fec0fede1c65e82bcee943bd7b9c9c86d5e3308fe245d1de0dba1796bd5b095",
+    "uniann/src/uniann.cpp": "8c288dcd816e7571c09eea2f0e88bfe4174d5e4360196322da3423294d66966e"
+  },
+  "source_sha256": {
+    "uniann/scripts/convert_coding_frame.pl": "ac5e2735e57a6a3b3aff951d92754721e5dc4f89644bd0501676f1e9aa659066",
+    "uniann/scripts/uniann.sh": "9d81a50e8e61defb61bc38e642e47c27d71a1c4431f4e56deb0d7c35619ede90",
+    "uniann/src/uniann.cpp": "8c288dcd816e7571c09eea2f0e88bfe4174d5e4360196322da3423294d66966e"
+  },
+  "gffread_sha256": "7f09b58113bfd2ed3385f4fe959f2515cbfa6a7d5024d68f4fcb2b86529bed10",
+  "emission_rows": 1700,
+  "header_included_in_input": true,
+  "additional_temperature_scaling": false,
+  "absolute_frame_formula": "(zero_based_position - local_phase) % 3"
+}

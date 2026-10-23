@@ -1,0 +1,10 @@
+##gff-version 3
+coding_fixture	UniAnn	CDS	61	181	9.25	+	.	Parent=sequence.fna.1;state=E0
+coding_fixture	UniAnn	intron	182	241	37.24	+	.	Parent=sequence.fna.1;state=I0
+coding_fixture	UniAnn	CDS	242	453	15.82	+	.	Parent=sequence.fna.1;state=E0
+coding_fixture	UniAnn	CDS	662	782	9.25	+	.	Parent=sequence.fna.2;state=E1
+coding_fixture	UniAnn	intron	783	843	36.63	+	.	Parent=sequence.fna.2;state=I1
+coding_fixture	UniAnn	CDS	844	1055	15.83	+	.	Parent=sequence.fna.2;state=E2
+coding_fixture	UniAnn	CDS	1263	1383	9.25	+	.	Parent=sequence.fna.3;state=E2
+coding_fixture	UniAnn	intron	1384	1445	36.04	+	.	Parent=sequence.fna.3;state=I2
+coding_fixture	UniAnn	CDS	1446	1657	15.83	+	.	Parent=sequence.fna.3;state=E1

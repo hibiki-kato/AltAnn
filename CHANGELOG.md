@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+- Add `altann score` to replay supplied GFF3/GTF CDS models under the native
+  model and report their delta to the global-best path on the decoder window,
+  or the first forbidden transition.
+
+- Report each candidate's donor/acceptor `splice_site_jaccard` against its
+  global-best reference in the diagnostic TSV and as the GFF3 attribute
+  `kbest_splice_jaccard`.
+
+- Retain local alternatives only when their CDS overlaps their own global-best
+  reference CDS; exclude independent flank and intronic ORFs before ranking
+  without changing the reference models, path scores or Viterbi decoding.
+- Complete real CNN-Mamba → UniAnn → AltAnn validation on all S. pombe nuclear
+  chromosomes and both strands; add evaluation and spliced-CDS audit scripts
+  with real-DNA regressions for shared upstream biological limitations.
+- Validate the local UniAnn header/frame/calibration fixes with corrected
+  score fixtures and a real S. pombe reference-coordinate audit; document the
+  remaining GPU/model-output blocker separately from prediction accuracy.
+- Consume UniAnn `6fe3d46` coding-frame emissions through the existing processed
+  score interface, without a model runtime or additional calibration.
+- Prefer processed scores during directory discovery even with `-a` and a
+  leftover PSAURON CSV; retain explicit legacy raw-input support.
+- Document local-to-absolute frame conversion, upstream score calibration,
+  and the current oriented UniAnn workflow.
+- Add upstream-generated coding-frame fixtures and regressions for all frames,
+  splice phases, score replay, alternative acceptors, and reverse coordinates.
+- Inspect the actual cnn-mamba exporter and calibration, add reproducible
+  downstream contract diagnostics, and document upstream header handling,
+  one-frame indexing offset, and repeated temperature transformations.
+
 ## 0.3.0
 
 - Decode both strands in one invocation with `-a` / `--all-prob`, using

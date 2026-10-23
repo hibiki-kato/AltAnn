@@ -6,6 +6,7 @@ numerical compatibility with the original seven-state implementation.
 """
 
 import csv
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -247,6 +248,85 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(reflected, actual)
         self.assertTrue(all(c[6] == "-" for c, _ in minus))
         self.assertTrue(any(c[2] == "CDS" and c[7] in ("1", "2") for c, _ in minus))
+
+    def test_report_includes_splice_site_jaccard(self):
+        self.run_cli("plus")
+        report = read_report(self.work / "plus.gff3.tsv")
+        self.assertTrue(report)
+        self.assertTrue(all(0.0 <= float(row["splice_site_jaccard"]) <= 1.0 for row in report))
+        self.assertTrue(any(float(row["splice_site_jaccard"]) < 1.0 for row in report))
+
+    def test_final_gff_carries_splice_site_jaccard(self):
+        transcripts = [attrs for _, attrs in self.run_cli("plus") if "kbest_rank" in attrs]
+        self.assertTrue(transcripts)
+        self.assertTrue(all(0.0 <= float(a["kbest_splice_jaccard"]) <= 1.0 for a in transcripts))
+        self.assertTrue(all(a["kbest_splice_jaccard"] == "1"
+                            for a in transcripts if a["kbest_rank"] == "0"))
+        report = {(row["reference_gene_index"], row["rank"], row["gene_in_path"]):
+                  row["splice_site_jaccard"] for row in read_report(self.work / "plus.gff3.tsv")}
+        for attrs in transcripts:
+            if attrs["kbest_rank"] != "0":
+                locus, rank, gene = attrs["ID"].rsplit(".kbest.", 1)[1].split(".")[:3]
+                self.assertAlmostEqual(float(attrs["kbest_splice_jaccard"]),
+                                       float(report[(locus.removeprefix("locus"), rank.removeprefix("k"),
+                                                     gene.removeprefix("g"))]), places=5)
+
+    def run_score(self, models, strand, extra=(), check=True):
+        output = self.work / f"{strand}.scores.tsv"
+        args = [sys.executable, "-m", "altann", "score", "--models", str(models),
+                "--rerun-viterbi", "--output", str(output), "--core", str(CORE),
+                "--flank", "50", "--threads", "2"]
+        for key, path in self.inputs.items():
+            args.extend(["--" + key, str(path)])
+        if strand == "minus":
+            args.append("--reverse")
+        args.extend(extra)
+        result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=check)
+        return result if not check else read_report(output)
+
+    def test_score_reproduces_decoder_deltas_on_both_orientations(self):
+        for strand in ("plus", "minus"):
+            decoded = self.run_cli(strand)
+            report = read_report(self.work / f"{strand}.gff3.tsv")
+            single = {(row["reference_gene_index"], row["rank"], row["gene_in_path"])
+                      for row in report if row["genes_in_path"] == "1"}
+            attrs = {a["ID"]: a for c, a in decoded if c[2] == "transcript"}
+            scores = self.run_score(self.work / f"{strand}.gff3", strand)
+            self.assertEqual(len(scores), len(attrs))
+            compared = 0
+            for row in scores:
+                a = attrs[row["transcript_id"]]
+                self.assertEqual(row["strand"], "-" if strand == "minus" else "+")
+                self.assertEqual(row["status"], "ok")
+                if a["kbest_rank"] == "0":
+                    self.assertEqual(float(row["delta"]), 0.0)
+                    self.assertEqual(row["identical_to_reference"], "1")
+                    self.assertEqual(row["reference_loci"], a["kbest_locus"])
+                    continue
+                locus = a["kbest_locus"].rsplit("locus", 1)[1]
+                if (locus, a["kbest_rank"], a["kbest_gene_in_path"].lstrip("g")) in single:
+                    self.assertAlmostEqual(float(row["delta"]), float(a["kbest_delta"]), places=8)
+                    compared += 1
+            self.assertGreater(compared, 0)
+
+    def test_score_skips_other_strands_and_reports_invalid_models(self):
+        models = self.work / "models.gff3"
+        models.write_text(
+            "##gff-version 3\n"
+            "fixture\tx\tmRNA\t1\t900\t.\t+\t.\tID=bad\n"
+            "fixture\tx\tCDS\t102\t140\t.\t+\t0\tParent=bad\n"
+            "fixture\tx\tCDS\t141\t300\t.\t+\t0\tParent=bad\n"
+            "fixture\tx\tmRNA\t1\t900\t.\t-\t.\tID=other\n"
+            "fixture\tx\tCDS\t102\t300\t.\t-\t0\tParent=other\n"
+            "elsewhere\tx\tCDS\t102\t300\t.\t+\t0\tParent=away\n")
+        scores = self.run_score(models, "plus")
+        self.assertEqual([row["transcript_id"] for row in scores], ["bad"])
+        self.assertEqual((scores[0]["status"], scores[0]["reason"]),
+                         ("unscorable", "overlapping_or_adjacent_cds"))
+        counts = json.loads((self.work / "plus.scores.tsv.json").read_text())["counts"]
+        self.assertEqual((counts["other_strand"], counts["other_sequence"]), (1, 1))
+        result = self.run_score(models, "plus", ["--gff", str(models)], check=False)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_best_gff_mismatch_is_rejected(self):
         best = self.work / "wrong-best.gff3"

@@ -1,0 +1,177 @@
+// Exercise output selection independently of DP search/scoring. Including the
+// implementation keeps its path/ranking types private to the production unit.
+#include "../src/local.cpp"
+
+namespace {
+void require(bool condition, const string &message) {
+    if (!condition) throw runtime_error(message);
+}
+
+TranscriptAnnotation annotation(vector<GenomicInterval> cds,
+                                string seqid = "fixture", char strand = '+') {
+    TranscriptAnnotation result;
+    result.sequence_id = seqid;
+    result.strand = strand;
+    result.cds_intervals = cds;
+    result.exons = cds;
+    if (!cds.empty()) {
+        result.genomic_start_0based = cds.front().start_0based;
+        result.genomic_end_0based_exclusive = cds.back().end_0based_exclusive;
+    }
+    return result;
+}
+
+// The state switches use the same codon-coordinate convention as the native
+// annotation builder: start+2 is N->E; end-1 is E->N.
+LocalPathResult path(vector<GenomicInterval> genes, double score,
+                     vector<double> start_scores) {
+    LocalPathResult result;
+    result.score = score;
+    result.start_scores = start_scores;
+    const int length = genes.empty() ? 600 : genes.back().end_0based_exclusive + 2;
+    result.path_states.assign(length, 0);
+    for (int p = 0; p < length; ++p) result.path_positions.push_back(p);
+    for (const auto &gene : genes)
+        for (int p = gene.start_0based + 2; p < gene.end_0based_exclusive - 1; ++p)
+            result.path_states[p] = 1;
+    return result;
+}
+
+void test_cds_overlap() {
+    const auto ref = annotation({{100, 200}, {400, 500}});
+    require(!shares_cds_base(ref, annotation({{50, 100}})), "left edge touch is disjoint");
+    require(!shares_cds_base(ref, annotation({{500, 550}})), "right edge touch is disjoint");
+    require(shares_cds_base(ref, annotation({{99, 101}})), "one shared CDS base is sufficient");
+    require(shares_cds_base(ref, annotation({{450, 470}})), "internal CDS overlap is retained");
+    require(shares_cds_base(ref, annotation({{50, 550}})), "a spanning CDS is retained");
+    require(!shares_cds_base(ref, annotation({{200, 400}})), "intron-only overlap is disjoint");
+    require(!shares_cds_base(ref, annotation({{0, 100}, {200, 400}, {500, 600}})),
+            "overlapping spans with disjoint CDS are rejected");
+    require(!shares_cds_base(ref, annotation({{100, 200}}, "other")), "seqid must match");
+    require(!shares_cds_base(ref, annotation({{100, 200}}, "fixture", '-')), "strand must match");
+    require(shares_cds_base(annotation({{100, 200}}, "fixture", '-'),
+                            annotation({{199, 250}}, "fixture", '-')),
+            "same-strand reverse intervals can overlap");
+    require(!shares_cds_base(ref, annotation({})), "no candidate CDS is rejected");
+    require(!shares_cds_base(annotation({}), ref), "no reference CDS is rejected");
+}
+
+void test_filter_before_ranking_and_deduplication() {
+    const auto ref = annotation({{100, 200}});
+    const vector<LocalPathResult> paths = {
+        path({}, 110, {}),
+        path({{10, 30}}, 100, {9}),
+        path({{10, 30}, {100, 200}, {300, 350}}, 90, {11, 22, 33}),
+        path({{100, 200}}, 80, {44}),
+        path({{150, 220}}, 70, {55}),
+        path({{160, 230}}, 60, {66}),
+    };
+    const auto selected = rank_annotations(paths, ref, "fixture", 85, 2);
+    require(selected.size() == 2, "only distinct retained annotations consume ranks");
+    const auto &first = selected[0];
+    require(first.rank == 1, "empty/disjoint paths must not consume ranks");
+    require(first.transcript.cds_intervals == ref.cds_intervals, "only overlapping gene is exported");
+    require(first.genes_in_path == 3 && first.gene_in_path == 2,
+            "original whole-path gene membership is preserved");
+    require(first.actual_start_score == 22, "start score uses original gene index");
+    require(first.score == 90 && first.transcript.score == 90 && first.score_delta == 5,
+            "filtering preserves exact whole-path score and reference delta");
+    require(first.identical_to_reference, "reference equality describes retained annotation");
+    require(selected[1].rank == 2 && selected[1].score == 70,
+            "deduplication ignores discarded genes and retains the highest scoring path");
+    require(selected[1].transcript.genomic_start_0based == 150,
+            "partial overlap is retained after duplicate removal");
+    require(!selected[1].identical_to_reference, "changed CDS is not reference-identical");
+}
+
+void test_intron_only_and_multiple_overlapping_genes() {
+    const auto ref = annotation({{100, 200}, {400, 500}});
+    const vector<LocalPathResult> paths = {
+        path({{250, 350}}, 100, {9}),
+        path({{10, 30}, {150, 180}, {250, 350}, {420, 460}}, 90, {11, 22, 33, 44}),
+    };
+    const auto selected = rank_annotations(paths, ref, "fixture", 85, 10);
+    require(selected.size() == 2, "both overlapping genes survive, intronic/flanking genes do not");
+    require(selected[0].rank == 1 && selected[1].rank == 1,
+            "multiple retained genes share the original path rank");
+    require(selected[0].gene_in_path == 2 && selected[1].gene_in_path == 4,
+            "original indices survive removal of intervening intronic genes");
+    require(selected[0].genes_in_path == 4 && selected[1].genes_in_path == 4,
+            "path gene count includes discarded genes");
+    require(selected[0].actual_start_score == 22 && selected[1].actual_start_score == 44,
+            "all retained starts match their own original scores");
+    require(selected[0].score == 90 && selected[1].score == 90,
+            "retained genes continue to report the same complete path score");
+    require(!selected[0].identical_to_reference && !selected[1].identical_to_reference,
+            "split genes do not become reference-identical");
+}
+TranscriptAnnotation spliced(vector<GenomicInterval> cds) {
+    auto result = annotation(cds);
+    for (size_t i = 0; i + 1 < cds.size(); ++i)
+        result.junctions.push_back({cds[i].end_0based_exclusive,
+                                    cds[i + 1].start_0based - 2, '+'});
+    return result;
+}
+
+void test_splice_site_jaccard() {
+    const auto ref = spliced({{100, 200}, {300, 400}, {500, 600}});
+    auto near = [](double a, double b) { return fabs(a - b) < 1e-12; };
+    require(near(splice_site_jaccard(ref, ref), 1.0), "identical chains score 1");
+    require(near(splice_site_jaccard(ref, spliced({{90, 200}, {300, 400}, {500, 650}})), 1.0),
+            "start/stop changes do not affect splice sites");
+    require(near(splice_site_jaccard(ref, spliced({{100, 210}, {300, 400}, {500, 600}})), 3.0 / 5.0),
+            "one shifted donor breaks only that donor");
+    require(near(splice_site_jaccard(ref, spliced({{100, 200}, {500, 600}})), 2.0 / 4.0),
+            "a skipped exon removes its acceptor and donor");
+    require(near(splice_site_jaccard(ref, annotation({{100, 600}})), 0.0),
+            "an intronless candidate shares no splice sites with a spliced reference");
+    require(near(splice_site_jaccard(annotation({{100, 200}}), annotation({{150, 300}})), 1.0),
+            "two intronless models are identical");
+    auto other = ref;
+    other.strand = '-';
+    require(near(splice_site_jaccard(ref, other), 0.0), "strand must match");
+}
+
+// Exons are written as E states and the gaps between them as I states; the
+// annotation builder then derives motif coordinates with its usual offsets.
+LocalPathResult spliced_path(vector<GenomicInterval> exons, double score) {
+    auto result = path({{exons.front().start_0based, exons.back().end_0based_exclusive}},
+                       score, {1});
+    for (size_t i = 0; i + 1 < exons.size(); ++i)
+        for (int p = exons[i].end_0based_exclusive; p < exons[i + 1].start_0based; ++p)
+            result.path_states[p] = 4;
+    return result;
+}
+
+void test_ranked_candidates_report_jaccard() {
+    const auto ref_path = spliced_path({{100, 200}, {300, 400}, {500, 600}}, 85);
+    const auto ref = build_transcript_annotations(
+        ref_path.path_positions, ref_path.path_states, "fixture").at(0);
+    require(ref.junctions.size() == 2, "fixture reference has two introns");
+    const vector<LocalPathResult> paths = {
+        spliced_path({{100, 200}, {320, 420}, {520, 600}}, 100),  // 1 of 7 sites
+        spliced_path({{100, 210}, {300, 400}, {500, 600}}, 90),   // 3 of 5 sites
+    };
+    const auto all = rank_annotations(paths, ref, "fixture", 85, 10);
+    require(all.size() == 2, "every overlapping candidate is kept");
+    for (const auto &cand : all)
+        require(cand.splice_jaccard == splice_site_jaccard(ref, cand.transcript),
+                "candidates report their splice-site Jaccard");
+    require(fabs(all[0].splice_jaccard - 1.0 / 7.0) < 1e-12 &&
+            fabs(all[1].splice_jaccard - 3.0 / 5.0) < 1e-12, "fixture Jaccard values");
+}
+} // namespace
+
+int main() {
+    try {
+        test_cds_overlap();
+        test_filter_before_ranking_and_deduplication();
+        test_intron_only_and_multiple_overlapping_genes();
+        test_splice_site_jaccard();
+        test_ranked_candidates_report_jaccard();
+    } catch (const exception &error) {
+        cerr << error.what() << '\n';
+        return 1;
+    }
+    return 0;
+}
