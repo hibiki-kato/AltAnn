@@ -13,7 +13,7 @@ int integer_option(const string &value, const string &name) {
 void usage(ostream &out) {
     out << "Usage: altann-core FASTA EMISSIONS GT AG ATG STOP\n"
         << "  --output FILE --report FILE [--k 10] [--flank 1000] [--threads 0]\n"
-        << "  [--traceback-memory 4096] MB of traceback shared by concurrent loci; the rest spills to a temporary file.\n"
+        << "  [--traceback-memory 1024] MB of traceback shared by concurrent loci; the rest spills to a temporary file.\n"
         << "  [--raw] Write every gene of every decoded path, with no overlap filter or deduplication.\n"
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
         << "  [--score-models FILE] Score supplied CDS models instead of K-best decoding;\n"
