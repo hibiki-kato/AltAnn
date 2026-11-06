@@ -275,12 +275,13 @@ GFF3 carries it as `kbest_splice_jaccard`, rounded to six significant
 digits (1 for references).
 
 Reference transcripts are retained with rank 0. Candidates use the original
-local decoder ranks, up to K. Intron chains are deduplicated within each locus;
-the reference takes precedence over alternatives sharing its chain. Empty
-chains (single-exon models) also deduplicate within the locus. K is the number
-of retained local paths, not a promise of K exported isoforms. A path may
-contain several genes; disjoint genes are excluded before annotation ranking.
-Selection happens before optional output filtering.
+local decoder ranks, up to K. Optional output filtering happens first. Intron
+chains are then deduplicated within each locus, keeping the best rank, so the
+reference takes precedence over alternatives sharing its chain. A single-exon
+model is a duplicate only when it overlaps a retained single-exon model of the
+locus. K is the number of retained local paths, not a promise of K exported
+isoforms. A path may contain several genes; disjoint genes are excluded before
+annotation ranking.
 
 `--raw` turns off that selection. Every gene of every decoded path is exported,
 including genes that share no CDS base with the reference, repeated annotations
