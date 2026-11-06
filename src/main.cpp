@@ -13,6 +13,7 @@ int integer_option(const string &value, const string &name) {
 void usage(ostream &out) {
     out << "Usage: altann-core FASTA EMISSIONS GT AG ATG STOP\n"
         << "  --output FILE --report FILE [--k 10] [--flank 1000] [--threads 0]\n"
+        << "  [--traceback-memory 1024] MB of traceback shared by concurrent loci; the rest spills to a temporary file.\n"
         << "  [--raw] Write every gene of every decoded path, with no overlap filter or deduplication.\n"
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
         << "  [--score-models FILE] Score supplied CDS models instead of K-best decoding;\n"
@@ -38,6 +39,11 @@ int main(int argc, char **argv) {
             else if (name == "--k") options.k = integer_option(value, name);
             else if (name == "--flank") options.flank = integer_option(value, name);
             else if (name == "--threads") options.threads = value == "auto" ? 0 : integer_option(value, name);
+            else if (name == "--traceback-memory") {
+                const int megabytes = integer_option(value, name);
+                if (megabytes < 0) throw runtime_error("--traceback-memory must be nonnegative");
+                options.traceback_memory_bytes = static_cast<size_t>(megabytes) * 1024 * 1024;
+            }
             else throw runtime_error("Unknown option: " + name);
         }
         if (options.k < 1 || options.k > 32767) throw runtime_error("K must be between 1 and 32767");

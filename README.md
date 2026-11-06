@@ -366,6 +366,19 @@ count on memory-constrained machines. Auto currently selects CPUs, not a memory
 budget. A 235 Mb test sequence peaked at 2.4 GB with K = 10, so chromosomes need
 no splitting for AltAnn itself.
 
+A locus's traceback takes `28 x K` bytes per window base. `--traceback-memory`
+(default 1024 MB) is shared by all loci decoding at the same time, however many
+threads run. A locus that does not fit moves its traceback through a temporary
+file beside the output, using background writes and read-ahead, and holds at most
+32 MB in memory meanwhile. The file is unlinked when created, so it never
+outlives the process, but it needs free disk space for every locus spilling at
+once. This choice does not affect the output.
+
+On local NVMe, spilling did not change run time. Human chr21+ at K = 100 and 32
+threads took 49 s at every budget; peak memory fell from 6.3 GB with no limit to
+2.2 GB at the default and 1.7 GB at 0, using 2.5 GB and 2.8 GB of temporary disk.
+Network file systems have not been measured.
+
 The global pass walks the emission file forward with rolling scores and a compact
 traceback. The local pass reads only each locus's window from that file,
 parallelizes independent loci with OpenMP and writes results in fixed order.

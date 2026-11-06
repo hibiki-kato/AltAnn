@@ -293,6 +293,22 @@ class DecoderTests(unittest.TestCase):
             self.assertEqual((stats["emitted_transcripts"], stats["duplicate_transcripts"]),
                              (emitted, duplicates))
 
+    def test_output_does_not_depend_on_traceback_memory_or_threads(self):
+        _, output, report = self.run_core("baseline")
+        # Budget 0 spills every locus; larger ones hold this small fixture in memory.
+        for threads, megabytes in ((1, 0), (4, 0), (2, 1), (4, 1), (4, 4096)):
+            with self.subTest(threads=threads, megabytes=megabytes):
+                name = f"t{threads}m{megabytes}"
+                subprocess.run(
+                    [str(CORE), *ordered_inputs(self.inputs), "--k", "8", "--flank", "50",
+                     "--threads", str(threads), "--traceback-memory", str(megabytes),
+                     "--output", str(self.work / f"{name}.gff"),
+                     "--report", str(self.work / f"{name}.tsv")],
+                    capture_output=True, text=True, check=True, cwd=self.work)
+                self.assertEqual(output.read_bytes(), (self.work / f"{name}.gff").read_bytes())
+                self.assertEqual(report.read_bytes(), (self.work / f"{name}.tsv").read_bytes())
+        self.assertFalse(list(self.work.glob(".altann-traceback-*")))
+
     def test_raw_excludes_incompatible_options(self):
         result = self.run_cli("plus", extra=["--raw", "--short-cds-filter"], check=False)
         self.assertNotEqual(result.returncode, 0)
