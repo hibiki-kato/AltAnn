@@ -188,6 +188,7 @@ struct Options {
     string viterbi_log_filename;
     string models_filename;
     bool raw = false;
+    bool uniann_gff = false;
     // Shared by all concurrent loci; tracebacks that do not fit spill to a
     // temporary file beside the output.
     size_t traceback_memory_bytes = size_t(4096) * 1024 * 1024;
@@ -241,6 +242,7 @@ private:
 struct Baseline {
     StatePath states;
     NoncodingPrefix noncoding_prefix;
+    array<double, NUM_STATES> final_scores{};
 };
 Fasta read_fasta(const string &path);
 vector<vector<double>> init_transitions();
@@ -251,6 +253,7 @@ Baseline decode_baseline(const ScoreSource &);
 Baseline load_baseline_log(const ScoreSource &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const vector<int> &, const vector<int> &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const StatePath &, const string &);
+void write_uniann_gff(ostream &, const StatePath &, const string &seqid, const string &fasta_path);
 string intron_chain_key(const TranscriptAnnotation &);
 string full_transcript_key(const TranscriptAnnotation &);
 string classify_splice_difference(const TranscriptAnnotation &, const TranscriptAnnotation &);

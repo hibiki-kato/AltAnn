@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `altann-core --uniann-gff`, which decodes the global best path and prints it
+  as the UniAnn binary does, without UniAnn's memory use or DP/BT log.
+
 - Trace all K paths back in one pass, store them run-length encoded, and spill
   tracebacks that do not fit the shared `--traceback-memory` budget to a temporary
   file, so long windows at high K fit in memory at any thread count. Output is

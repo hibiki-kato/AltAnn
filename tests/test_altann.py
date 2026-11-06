@@ -309,6 +309,26 @@ class DecoderTests(unittest.TestCase):
                 self.assertEqual(report.read_bytes(), (self.work / f"{name}.tsv").read_bytes())
         self.assertFalse(list(self.work.glob(".altann-traceback-*")))
 
+    def test_uniann_gff_mode_reports_the_reference_path(self):
+        _, output, _ = self.run_core()
+        result = subprocess.run([str(CORE), *ordered_inputs(self.inputs), "--uniann-gff"],
+                                capture_output=True, text=True, check=True, cwd=self.work)
+        lines = [line.split("\t") for line in result.stdout.splitlines() if line and line[0] != "#"]
+        self.assertTrue(lines)
+        self.assertTrue(all(row[1] == "UniAnn" and row[2] in ("CDS", "intron") for row in lines))
+        reference = read_gff(Path(str(output) + ".reference.gff"))
+        coding = [(int(c[3]), int(c[4])) for c, _ in reference if c[2] == "CDS"]
+        printed = [(int(row[3]), int(row[4])) for row in lines if row[2] == "CDS"]
+        self.assertEqual(len(printed), len(coding))
+        final = result.stderr.strip().split("\t")
+        self.assertEqual(final[1], "dp")
+        self.assertEqual(len(final), 9)
+        # Combining with another output or mode is an error, not silently ignored.
+        for extra in (["--raw"], ["--output", str(self.work / "x.gff")]):
+            rejected = subprocess.run([str(CORE), *ordered_inputs(self.inputs), "--uniann-gff", *extra],
+                                      capture_output=True, text=True, cwd=self.work)
+            self.assertNotEqual(rejected.returncode, 0)
+
     def test_raw_excludes_incompatible_options(self):
         result = self.run_cli("plus", extra=["--raw", "--short-cds-filter"], check=False)
         self.assertNotEqual(result.returncode, 0)
