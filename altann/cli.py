@@ -49,7 +49,7 @@ def parser():
     d.add_argument('--k', type=int, default=10, help='Retained paths per state (default: 10).')
     d.add_argument('--short-cds-filter', action='store_true', help='Exclude models with <=2 exons and <=200 coding bases.')
     d.add_argument('--raw', action='store_true', help='Export every gene of every decoded path, without the CDS-overlap filter or deduplication; rank is the decoder path index.')
-    d.add_argument('--traceback-memory', type=int, default=4096, metavar='MB', help='Traceback memory shared by concurrent loci; tracebacks that do not fit spill to a temporary file beside the output (default: 4096).')
+    d.add_argument('--traceback-memory', type=int, default=1024, metavar='MB', help='Traceback memory shared by concurrent loci; tracebacks that do not fit spill to a temporary file beside the output (default: 1024).')
     d.add_argument('--segment-overlap', type=int, default=4_000_000)
     d.add_argument('--segment-margin', type=int, default=20_000)
     s = sub.add_parser('score', help='Score supplied CDS models (for example EviAnn isoforms) against the global-best path.')

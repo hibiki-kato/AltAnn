@@ -13,7 +13,7 @@ int integer_option(const string &value, const string &name) {
 void usage(ostream &out) {
     out << "Usage: altann-core FASTA EMISSIONS GT AG ATG STOP\n"
         << "  --output FILE --report FILE [--k 10] [--flank 1000] [--threads 0]\n"
-        << "  [--traceback-memory 4096] MB of traceback shared by concurrent loci; the rest spills to a temporary file.\n"
+        << "  [--traceback-memory 1024] MB of traceback shared by concurrent loci; the rest spills to a temporary file.\n"
         << "  [--uniann-gff] Only decode the global best path and write it to standard output as the\n"
         << "    UniAnn binary does; standard error gets the final dp row. No other output is written.\n"
         << "  [--raw] Write every gene of every decoded path, with no overlap filter or deduplication.\n"

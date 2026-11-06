@@ -191,7 +191,7 @@ struct Options {
     bool uniann_gff = false;
     // Shared by all concurrent loci; tracebacks that do not fit spill to a
     // temporary file beside the output.
-    size_t traceback_memory_bytes = size_t(4096) * 1024 * 1024;
+    size_t traceback_memory_bytes = size_t(1024) * 1024 * 1024;
 };
 struct Fasta { string id; vector<char> sequence; };
 // Run-length encoded state path over a whole sequence.
