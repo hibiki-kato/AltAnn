@@ -113,7 +113,7 @@ Replay replay(int left, int right, PathMetadata metadata, StateAt state_at,
 
 string score_model(const ModelRecord &model, const string &seqid,
                    const vector<TranscriptAnnotation> &references,
-                   const Baseline &baseline, const ModelInputs &inputs,
+                   const Baseline &baseline, const ScoreSource &source,
                    const Options &options) {
     const auto &global = baseline.states;
     const int L = global.size();
@@ -142,6 +142,8 @@ string score_model(const ModelRecord &model, const string &seqid,
     while (left > 0 && (options.flank < 0 || left > requested_left) && global[left - 1] == 0) --left;
     while (right + 1 < L && (options.flank < 0 || right < requested_right) && global[right + 1] == 0) ++right;
 
+    const auto window = transition_window(source, left, right);
+    const auto inputs = window.inputs();
     PathMetadata initial = options.flank >= 0 ? baseline.noncoding_prefix[left] : PathMetadata{};
     if (left == 0 || options.flank < 0) {
         initial.predecessor_state = 0;
@@ -201,7 +203,7 @@ string score_model(const ModelRecord &model, const string &seqid,
 } // namespace
 
 void run_model_scoring(const string &seqid, const vector<TranscriptAnnotation> &references,
-                       const Baseline &baseline, const ModelInputs &inputs,
+                       const Baseline &baseline, const ScoreSource &source,
                        const Options &options) {
     const auto models = read_models(options.models_filename);
     vector<string> rows(models.size()), errors(models.size());
@@ -210,7 +212,7 @@ void run_model_scoring(const string &seqid, const vector<TranscriptAnnotation> &
     const int count = static_cast<int>(models.size());
     #pragma omp parallel for schedule(dynamic) num_threads(threads)
     for (int i = 0; i < count; ++i) {
-        try { rows[i] = score_model(models[i], seqid, references, baseline, inputs, options); }
+        try { rows[i] = score_model(models[i], seqid, references, baseline, source, options); }
         catch (const exception &error) { errors[i] = error.what(); }
         catch (...) { errors[i] = "Unknown scoring error"; }
     }

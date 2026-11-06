@@ -255,11 +255,11 @@ vector<LocalKBestCandidate> rank_annotations(
 LocusOutput decode_locus(
     size_t ref_idx, const string &seqid,
     const vector<TranscriptAnnotation> &references,
-    const vector<int> &global_path_states,
-    const vector<PathMetadata> &noncoding_prefix,
-    const ModelInputs &inputs, const Options &options
+    const Baseline &baseline,
+    const ScoreSource &source, const Options &options
 ) {
-    const int L = inputs.seq.size();
+    const StatePath &global_path_states = baseline.states;
+    const int L = source.length();
     ostringstream gff_out, reference_out, tsv_out;
     tsv_out << setprecision(17);
     const auto &ref = references[ref_idx];
@@ -289,9 +289,11 @@ LocusOutput decode_locus(
     while (R_bound < requested_right && global_path_states[R_bound + 1] == 0)
         ++R_bound;
 
+    const auto window = transition_window(source, L_bound, R_bound);
+    const auto inputs = window.inputs();
     double ref_fixed_score = inputs.emit[L_bound][0];
     PathMetadata initial_metadata = options.flank >= 0
-        ? noncoding_prefix[L_bound] : PathMetadata{};
+        ? baseline.noncoding_prefix[L_bound] : PathMetadata{};
     if (L_bound == 0 || options.flank < 0) {
         initial_metadata.predecessor_state = 0;
         initial_metadata.inter_len = 1;
@@ -374,9 +376,8 @@ LocusOutput decode_locus(
 bool run_local_k_best(
     const string &seqid,
     const vector<TranscriptAnnotation> &references,
-    const vector<int> &global_path_states,
-    const vector<PathMetadata> &noncoding_prefix,
-    const ModelInputs &inputs,
+    const Baseline &baseline,
+    const ScoreSource &source,
     const Options &options
 ) {
     ostringstream gff_out, reference_out, tsv_out;
@@ -404,7 +405,7 @@ bool run_local_k_best(
     for (int ref_idx = 0; ref_idx < locus_count; ++ref_idx) {
         try {
             outputs[ref_idx] = decode_locus(ref_idx, seqid, references,
-                global_path_states, noncoding_prefix, inputs, options);
+                baseline, source, options);
         }
         catch (const exception &error) { outputs[ref_idx].error = error.what(); }
         catch (...) { outputs[ref_idx].error = "Unknown decoder error"; }

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Read emission scores on demand from a position index instead of holding them
+  in memory, keep motif scores sparse, and store the global path and N-prefix
+  metadata in compact form. Peak memory on Dmel chrX falls from 2.17 GB to
+  0.37 GB; output is unchanged. Emission inputs must now be seekable files.
+
 - Add `altann decode --raw` to export every gene of every decoded path, without
   the CDS-overlap filter or annotation and intron-chain deduplication. Default
   output is unchanged.
