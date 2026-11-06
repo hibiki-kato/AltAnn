@@ -14,6 +14,8 @@ void usage(ostream &out) {
     out << "Usage: altann-core FASTA EMISSIONS GT AG ATG STOP\n"
         << "  --output FILE --report FILE [--k 10] [--flank 1000] [--threads 0]\n"
         << "  [--traceback-memory 1024] MB of traceback shared by concurrent loci; the rest spills to a temporary file.\n"
+        << "  [--uniann-gff] Only decode the global best path and write it to standard output as the\n"
+        << "    UniAnn binary does; standard error gets the final dp row. No other output is written.\n"
         << "  [--raw] Write every gene of every decoded path, with no overlap filter or deduplication.\n"
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
         << "  [--score-models FILE] Score supplied CDS models instead of K-best decoding;\n"
@@ -30,6 +32,7 @@ int main(int argc, char **argv) {
         for (int arg = 7; arg < argc; ++arg) {
             const string name = argv[arg];
             if (name == "--raw") { options.raw = true; continue; }
+            if (name == "--uniann-gff") { options.uniann_gff = true; continue; }
             if (arg + 1 >= argc) throw runtime_error("Missing value for " + name);
             const string value = argv[++arg];
             if (name == "--output") options.output_filename = value;
@@ -51,7 +54,11 @@ int main(int argc, char **argv) {
             throw runtime_error("Flank must be -1 or a nonnegative supported distance");
         if (options.threads < 0) throw runtime_error("Threads must be nonnegative");
         const bool scoring = !options.models_filename.empty();
-        if (options.output_filename.empty() || (!scoring && options.report_filename.empty()))
+        if (options.uniann_gff && (scoring || options.raw || !options.output_filename.empty() ||
+                                   !options.report_filename.empty()))
+            throw runtime_error("--uniann-gff writes only to standard output and takes no other mode or output");
+        if (!options.uniann_gff && (options.output_filename.empty() ||
+                                    (!scoring && options.report_filename.empty())))
             throw runtime_error(scoring ? "--output is required"
                                         : "Both --output and --report are required");
         if (scoring && options.raw)
@@ -65,8 +72,9 @@ int main(int argc, char **argv) {
         if (!options.viterbi_log_filename.empty())
             input_paths.push_back(options.viterbi_log_filename);
         if (scoring) input_paths.push_back(options.models_filename);
-        vector<string> outputs{options.output_filename};
-        if (!scoring) {
+        vector<string> outputs;
+        if (!options.uniann_gff) outputs.push_back(options.output_filename);
+        if (!scoring && !options.uniann_gff) {
             outputs.push_back(options.report_filename);
             outputs.push_back(options.output_filename + ".reference.gff");
         }
@@ -88,6 +96,13 @@ int main(int argc, char **argv) {
         const auto baseline = options.viterbi_log_filename.empty()
             ? decode_baseline(source)
             : load_baseline_log(source, options.viterbi_log_filename);
+        if (options.uniann_gff) {
+            write_uniann_gff(cout, baseline.states, fasta.id, argv[1]);
+            cerr << baseline.states.size() - 1 << "\tdp";
+            for (const double score : baseline.final_scores) cerr << '\t' << static_cast<long long>(score);
+            cerr << '\n';
+            return cout.good() ? 0 : 1;
+        }
         const auto references = build_transcript_annotations(baseline.states, fasta.id);
         if (scoring) {
             run_model_scoring(fasta.id, references, baseline, source, options);

@@ -121,6 +121,8 @@ Baseline load_baseline_log(const ScoreSource &source, const string &path) {
     for (int candidate = 1; candidate < NUM_STATES; ++candidate)
         if (previous[candidate].score > previous[state].score) state = candidate;
     result.states = trace_path(traceback, state);
+    for (int candidate = 0; candidate < NUM_STATES; ++candidate)
+        result.final_scores[candidate] = previous[candidate].score;
     return result;
 }
 
@@ -169,5 +171,7 @@ Baseline decode_baseline(const ScoreSource &source) {
     for (int candidate = 1; candidate < NUM_STATES; ++candidate)
         if (previous[candidate].score > previous[state].score) state = candidate;
     result.states = trace_path(traceback, state);
+    for (int candidate = 0; candidate < NUM_STATES; ++candidate)
+        result.final_scores[candidate] = previous[candidate].score;
     return result;
 }

@@ -1,5 +1,6 @@
 // Adapted from UniAnn by Aleksey Zimin and contributors. See THIRD_PARTY.md.
 #include "altann.hpp"
+#include <filesystem>
 
 // Conversion follows motif coordinates, not the raw DP switch position.
 // Internal intervals are half-open; GFF features use one-based closed bounds.
@@ -92,6 +93,44 @@ vector<TranscriptAnnotation> build_transcript_annotations(
     for (size_t run = 1; run < starts.size(); ++run)
         builder.step(states[run - 1], states[run], starts[run]);
     return builder.transcripts_;
+}
+
+// Same features and transcript numbering as the UniAnn binary's standard output,
+// so UniAnn's wrapper can use this decoder unchanged. Feature scores are written
+// as 0; the wrapper's gffread steps discard them.
+void write_uniann_gff(ostream &out, const StatePath &path, const string &seqid,
+                      const string &fasta_path) {
+    const string name = filesystem::path(fasta_path).filename().string();
+    int transcript_index = 0;
+    const auto feature = [&](int state, int start, int end) {
+        if (state == 0) {
+            ++transcript_index;
+            return;
+        }
+        out << seqid << "\tUniAnn\t" << (is_exon(state) ? "CDS" : "intron") << '\t' << start << '\t'
+            << end << "\t0\t+\t.\tParent=" << name << '.' << transcript_index
+            << ";state=" << state_name[state] << '\n';
+    };
+    out << "##gff-version 3\n";
+    const auto &starts = path.run_starts();
+    const auto &states = path.run_states();
+    int previous = states[0], start = 0;
+    for (size_t run = 1; run < starts.size(); ++run) {
+        const int current = states[run - 1], next = states[run], position = starts[run];
+        int end = position - 1;
+        if (current == 0) end = position - 2;
+        if (next == 0) end = position + 1;
+        if (end > start) {
+            if (is_exon(current) && is_intron(previous)) feature(current, start + 2, end);
+            else if (is_intron(current) && is_exon(previous)) feature(current, start, end + 2);
+            else feature(current, start, end);
+        }
+        if (current == 0) start = position - 1;
+        else if (next == 0) start = position + 2;
+        else start = position;
+        previous = current;
+    }
+    feature(states.back(), start, path.size() - 1);
 }
 
 string intron_chain_key(const TranscriptAnnotation &transcript) {
