@@ -64,9 +64,12 @@ def reference_scores(input_path):
 def convert(input_path, segment, strand, output_path, stats_path, *, chromosome,
             offset, length, total, segmented=False, k=10, short_cds_filter=False,
             overlap=4_000_000, margin=20_000, best_gff=None, raw=False):
-    """Map sequence-oriented paths to genomic GFF3 and retain unique intron chains.
+    """Map sequence-oriented paths to genomic GFF3 and retain distinct models.
 
-    With raw, every transcript is retained regardless of its intron chain.
+    The short-CDS filter runs first, so a removed model never hides a later one.
+    Within a locus the best-ranked model of each intron chain is then retained.
+    Single-exon models have no introns, so one is a duplicate only when it overlaps
+    a retained single-exon model. With raw, every transcript is retained.
     Coordinates in raw decoder files are one-based inclusive. Reverse-oriented
     input is reflected within its segment before adding the zero-based offset.
     """
@@ -133,19 +136,26 @@ def convert(input_path, segment, strand, output_path, stats_path, *, chromosome,
     counts['input_reference_transcripts'] = sum(t['rank'] == 0 for t in transcripts.values())
     if best_gff:
         validate_best(best_gff, transcripts, chromosome, strand, offset, length)
-    seen, output, ranks = set(), ['##gff-version 3'], Counter()
+    seen, single_exon, output, ranks = set(), {}, ['##gff-version 3'], Counter()
     for tid, t in sorted(transcripts.items(), key=lambda item: item[1]['rank']):
         exons = sorted((int(r[3]), int(r[4])) for r in t['exons'])
         if not exons or any(a[1] >= b[0] for a, b in zip(exons, exons[1:])):
             raise ValueError(f'Invalid exon chain: {tid}')
-        introns = tuple((a[1] + 1, b[0] - 1) for a, b in zip(exons, exons[1:]))
-        key = (t['locus'], introns)
-        if key in seen and not raw:
-            counts['duplicate_transcripts'] += 1
-            continue
-        seen.add(key)
         if short_cds_filter and len(t['exons']) <= 2 and sum(int(r[4]) - int(r[3]) + 1 for r in t['cds']) <= 200:
             counts['short_cds_transcripts'] += 1
+            continue
+        introns = tuple((a[1] + 1, b[0] - 1) for a, b in zip(exons, exons[1:]))
+        key = (t['locus'], introns)
+        if introns:
+            duplicate = key in seen
+            seen.add(key)
+        else:
+            kept = single_exon.setdefault(t['locus'], [])
+            duplicate = any(exons[0][0] <= end and start <= exons[0][1] for start, end in kept)
+            if not duplicate:
+                kept.append(exons[0])
+        if duplicate and not raw:
+            counts['duplicate_transcripts'] += 1
             continue
         def transform(row):
             row = row.copy()

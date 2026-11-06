@@ -9,6 +9,7 @@ import csv
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -292,6 +293,30 @@ class DecoderTests(unittest.TestCase):
                             chromosome="s", offset=0, length=300, total=300, k=2, raw=raw)
             self.assertEqual((stats["emitted_transcripts"], stats["duplicate_transcripts"]),
                              (emitted, duplicates))
+
+    def test_convert_deduplicates_after_the_short_cds_filter(self):
+        def single_exon(tid, start, end):
+            return [f"s\tUniAnn\ttranscript\t{start}\t{end}\t5\t+\t.\tID={tid}",
+                    f"s\tUniAnn\texon\t{start}\t{end}\t.\t+\t.\tParent={tid}",
+                    f"s\tUniAnn\tCDS\t{start}\t{end}\t.\t+\t0\tParent={tid}"]
+        models = [("locus1.reference.g1.t1", 1, 18),    # short: removed, hides nothing
+                  ("locus1.k1.g1.t1", 1, 18),           # short: removed
+                  ("locus1.k2.g1.t1", 301, 800),        # kept
+                  ("locus1.k3.g1.t1", 351, 800),        # overlaps rank 2: duplicate
+                  ("locus1.k4.g1.t1", 1001, 1500)]      # no overlap: kept
+        path = self.work / "paths.gff"
+        Path(str(path) + ".reference.gff").write_text("\n".join(single_exon(*models[0])) + "\n")
+        path.write_text("\n".join(line for model in models[1:] for line in single_exon(*model)) + "\n")
+        path.with_suffix(".tsv").write_text(
+            "reference_gene_index\trank\tgene_in_path\treference_fixed_interval_score\n" +
+            "".join(f"1\t{rank}\t1\t5\n" for rank in range(1, 5)))
+        out = self.work / "out.gff3"
+        stats = convert(path, "s", "plus", out, self.work / "out.json", chromosome="s", offset=0,
+                        length=2000, total=2000, k=4, short_cds_filter=True)
+        self.assertEqual((stats["short_cds_transcripts"], stats["duplicate_transcripts"],
+                          stats["emitted_transcripts"]), (2, 1, 2))
+        ranks = re.findall(r"kbest_rank=(\d+)", out.read_text())
+        self.assertEqual(ranks, ["2", "4"])
 
     def test_output_does_not_depend_on_traceback_memory_or_threads(self):
         _, output, report = self.run_core("baseline")

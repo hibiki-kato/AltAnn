@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Apply `--short-cds-filter` before deduplicating, so a removed model no longer
+  hides a later model with the same intron chain. Treat a single-exon model as a
+  duplicate only when it overlaps a retained single-exon model of the locus, not
+  whenever the locus already has one.
+
 - Add `altann-core --uniann-gff`, which decodes the global best path and prints it
   as the UniAnn binary does, without UniAnn's memory use or DP/BT log.
 
