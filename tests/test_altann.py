@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 
+from altann.convert import convert
 from fixtures import ordered_inputs, write_fixture
 
 
@@ -255,6 +256,54 @@ class DecoderTests(unittest.TestCase):
         self.assertTrue(report)
         self.assertTrue(all(0.0 <= float(row["splice_site_jaccard"]) <= 1.0 for row in report))
         self.assertTrue(any(float(row["splice_site_jaccard"]) < 1.0 for row in report))
+
+    def test_raw_exports_every_report_row_and_the_default_subset(self):
+        self.run_cli("plus")
+        default = read_report(self.work / "plus.gff3.tsv")
+        output = self.work / "raw.gff3"
+        self.run_cli("plus", extra=["--raw", "--output", str(output)])
+        transcripts = [a for c, a in read_gff(output) if c[2] == "transcript"]
+        report = read_report(self.work / "raw.gff3.tsv")
+        # Every row becomes a transcript, in addition to the two references.
+        self.assertEqual(len(transcripts), len(report) + 2)
+        self.assertEqual(sum(a["kbest_rank"] == "0" for a in transcripts), 2)
+        self.assertTrue(json.loads((self.work / "raw.gff3.json").read_text())["raw"])
+        # This fixture's paths are all distinct and overlap their reference.
+        self.assertEqual(report, default)
+
+    def test_raw_convert_keeps_repeated_intron_chains(self):
+        path = self.work / "paths.gff"
+        def transcript(tid, cds_start):
+            return [f"s\tUniAnn\ttranscript\t1\t300\t5\t+\t.\tID={tid}",
+                    f"s\tUniAnn\texon\t1\t100\t.\t+\t.\tParent={tid}",
+                    f"s\tUniAnn\texon\t201\t300\t.\t+\t.\tParent={tid}",
+                    f"s\tUniAnn\tCDS\t{cds_start}\t100\t.\t+\t0\tParent={tid}",
+                    f"s\tUniAnn\tCDS\t201\t300\t.\t+\t0\tParent={tid}"]
+        Path(str(path) + ".reference.gff").write_text(
+            "\n".join(transcript("locus1.reference.g1.t1", 1)) + "\n")
+        path.write_text("\n".join(transcript("locus1.k1.g1.t1", 1) +
+                                  transcript("locus1.k2.g1.t1", 4)) + "\n")
+        path.with_suffix(".tsv").write_text(
+            "reference_gene_index\trank\tgene_in_path\treference_fixed_interval_score\n"
+            "1\t1\t1\t5\n1\t2\t1\t5\n")
+        expected = {False: (1, 2), True: (3, 0)}
+        for raw, (emitted, duplicates) in expected.items():
+            stats = convert(path, "s", "plus", self.work / f"{raw}.gff3", self.work / f"{raw}.json",
+                            chromosome="s", offset=0, length=300, total=300, k=2, raw=raw)
+            self.assertEqual((stats["emitted_transcripts"], stats["duplicate_transcripts"]),
+                             (emitted, duplicates))
+
+    def test_raw_excludes_incompatible_options(self):
+        result = self.run_cli("plus", extra=["--raw", "--short-cds-filter"], check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--short-cds-filter", result.stderr)
+        models = self.work / "models.tsv"
+        models.write_text("m\t60-180\n")
+        result = subprocess.run(
+            [str(CORE), *ordered_inputs(self.inputs), "--output", str(self.work / "out.tsv"),
+             "--score-models", str(models), "--raw"], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--raw", result.stderr)
 
     def test_final_gff_carries_splice_site_jaccard(self):
         transcripts = [attrs for _, attrs in self.run_cli("plus") if "kbest_rank" in attrs]

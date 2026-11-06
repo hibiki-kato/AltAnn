@@ -282,6 +282,14 @@ of retained local paths, not a promise of K exported isoforms. A path may
 contain several genes; disjoint genes are excluded before annotation ranking.
 Selection happens before optional output filtering.
 
+`--raw` turns off that selection. Every gene of every decoded path is exported,
+including genes that share no CDS base with the reference, repeated annotations
+and paths matching the reference, and `rank` is the decoder's path index. Paths
+without a complete gene write nothing but still consume a rank. Genes without
+CDS overlap have `classification` `no_cds_overlap` and `splice_site_jaccard` 0.
+Segment ownership still applies, so overlapping segments do not repeat a locus.
+`--raw` cannot be combined with `--short-cds-filter`.
+
 `--short-cds-filter` reproduces the Dmel export rule: omit transcripts with at
 most two exons and at most 200 coding bases. It is disabled by default so this
 filter is an explicit choice.

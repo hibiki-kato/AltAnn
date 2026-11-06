@@ -13,6 +13,7 @@ int integer_option(const string &value, const string &name) {
 void usage(ostream &out) {
     out << "Usage: altann-core FASTA EMISSIONS GT AG ATG STOP\n"
         << "  --output FILE --report FILE [--k 10] [--flank 1000] [--threads 0]\n"
+        << "  [--raw] Write every gene of every decoded path, with no overlap filter or deduplication.\n"
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
         << "  [--score-models FILE] Score supplied CDS models instead of K-best decoding;\n"
         << "    FILE rows are ID<TAB>start-end,... (zero-based half-open); --report is unused.\n"
@@ -27,6 +28,7 @@ int main(int argc, char **argv) {
         Options options;
         for (int arg = 7; arg < argc; ++arg) {
             const string name = argv[arg];
+            if (name == "--raw") { options.raw = true; continue; }
             if (arg + 1 >= argc) throw runtime_error("Missing value for " + name);
             const string value = argv[++arg];
             if (name == "--output") options.output_filename = value;
@@ -46,6 +48,8 @@ int main(int argc, char **argv) {
         if (options.output_filename.empty() || (!scoring && options.report_filename.empty()))
             throw runtime_error(scoring ? "--output is required"
                                         : "Both --output and --report are required");
+        if (scoring && options.raw)
+            throw runtime_error("--raw cannot be combined with --score-models");
         if (scoring && !options.report_filename.empty())
             throw runtime_error("--report cannot be combined with --score-models");
         // Resolve existing symlinks and relative components before opening
