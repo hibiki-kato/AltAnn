@@ -63,9 +63,10 @@ def reference_scores(input_path):
 
 def convert(input_path, segment, strand, output_path, stats_path, *, chromosome,
             offset, length, total, segmented=False, k=10, short_cds_filter=False,
-            overlap=4_000_000, margin=20_000, best_gff=None):
+            overlap=4_000_000, margin=20_000, best_gff=None, raw=False):
     """Map sequence-oriented paths to genomic GFF3 and retain unique intron chains.
 
+    With raw, every transcript is retained regardless of its intron chain.
     Coordinates in raw decoder files are one-based inclusive. Reverse-oriented
     input is reflected within its segment before adding the zero-based offset.
     """
@@ -139,7 +140,7 @@ def convert(input_path, segment, strand, output_path, stats_path, *, chromosome,
             raise ValueError(f'Invalid exon chain: {tid}')
         introns = tuple((a[1] + 1, b[0] - 1) for a, b in zip(exons, exons[1:]))
         key = (t['locus'], introns)
-        if key in seen:
+        if key in seen and not raw:
             counts['duplicate_transcripts'] += 1
             continue
         seen.add(key)

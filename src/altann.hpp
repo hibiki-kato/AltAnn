@@ -121,6 +121,7 @@ struct Options {
     string report_filename;
     string viterbi_log_filename;
     string models_filename;
+    bool raw = false;
 };
 struct Fasta { string id; vector<char> sequence; };
 struct Baseline {

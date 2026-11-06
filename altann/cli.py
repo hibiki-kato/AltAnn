@@ -48,6 +48,7 @@ def parser():
     d.add_argument('-a', '--all-prob', dest='both_strands', action='store_true', help='Decode both strands from the original FASTA and strand-tagged processed UniAnn scores, or legacy six-frame PSAURON/site probabilities selected with --psauron or --scores; recompute both reference paths.')
     d.add_argument('--k', type=int, default=10, help='Retained paths per state (default: 10).')
     d.add_argument('--short-cds-filter', action='store_true', help='Exclude models with <=2 exons and <=200 coding bases.')
+    d.add_argument('--raw', action='store_true', help='Export every gene of every decoded path, without the CDS-overlap filter or deduplication; rank is the decoder path index.')
     d.add_argument('--segment-overlap', type=int, default=4_000_000)
     d.add_argument('--segment-margin', type=int, default=20_000)
     s = sub.add_parser('score', help='Score supplied CDS models (for example EviAnn isoforms) against the global-best path.')
@@ -210,6 +211,8 @@ def decode(args):
     started = time.monotonic()
     if not 1 <= args.k <= 32767 or args.flank < 0 or args.segment_overlap < 0 or args.segment_margin < 0:
         raise ValueError('K must be between 1 and 32767; flank and segment settings must be nonnegative')
+    if args.raw and args.short_cds_filter:
+        raise ValueError('--raw cannot be combined with --short-cds-filter')
     threads = thread_count(args)
     job = job_from_args(args)
     core = find_core(args)
@@ -220,7 +223,7 @@ def decode(args):
         raise ValueError('Output paths must not overwrite input files')
     output.parent.mkdir(parents=True, exist_ok=True)
     metadata = dict(version=__version__, command=sys.argv, threads=threads,
-                    reverse=args.reverse, both_strands=args.both_strands,
+                    reverse=args.reverse, both_strands=args.both_strands, raw=args.raw,
                     reference_mode='rerun' if args.rerun_viterbi or args.both_strands or job['psauron'] else 'traceback', jobs=[])
     with tempfile.TemporaryDirectory(prefix='.altann-', dir=output.parent) as temp:
         temp = Path(temp)
@@ -256,11 +259,14 @@ def decode(args):
                        '--k', args.k, '--flank', args.flank, '--threads', threads, '--output', raw, '--report', report]
             if job['log']:
                 command.extend(['--viterbi-log', job['log']])
+            if args.raw:
+                command.append('--raw')
             run_process(command, work/'decoder.log', work)
             converted = work/'converted.gff3'
             stats = convert(raw, segment, job['strand'], converted, work/'stats.json', **coords,
                             k=args.k, short_cds_filter=args.short_cds_filter,
-                            overlap=args.segment_overlap, margin=args.segment_margin, best_gff=job['best_gff'])
+                            overlap=args.segment_overlap, margin=args.segment_margin, best_gff=job['best_gff'],
+                            raw=args.raw)
             with report.open() as handle, report_path.open('w' if index == 0 else 'a') as report_out:
                 header = handle.readline()
                 if index == 0:

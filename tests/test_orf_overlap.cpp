@@ -84,6 +84,31 @@ void test_filter_before_ranking_and_deduplication() {
     require(!selected[1].identical_to_reference, "changed CDS is not reference-identical");
 }
 
+void test_raw_keeps_every_path_and_gene() {
+    const auto ref = annotation({{100, 200}});
+    const vector<LocalPathResult> paths = {
+        path({}, 110, {}),
+        path({{10, 30}}, 100, {9}),
+        path({{10, 30}, {100, 200}}, 90, {11, 22}),
+        path({{100, 200}}, 80, {44}),
+        path({{100, 200}}, 70, {55}),
+    };
+    const auto all = rank_annotations(paths, ref, "fixture", 85, 10, true);
+    require(all.size() == 5, "every gene of every path is returned");
+    const vector<int> ranks = {2, 3, 3, 4, 5};
+    for (size_t i = 0; i < all.size(); ++i)
+        require(all[i].rank == ranks[i], "rank is the decoder path index");
+    require(all[0].classification == "no_cds_overlap" && all[0].splice_jaccard == 0,
+            "a disjoint intronless gene is not reported as identical");
+    require(all[1].classification == "no_cds_overlap" && !all[1].identical_to_reference,
+            "the disjoint gene of a shared path is marked");
+    require(all[2].gene_in_path == 2 && all[2].actual_start_score == 22 &&
+            all[2].classification == "identical" && all[2].identical_to_reference,
+            "a disjoint neighbor does not change the overlapping gene's report");
+    require(all[3].identical_to_reference && all[4].identical_to_reference,
+            "repeated annotations are kept");
+}
+
 void test_intron_only_and_multiple_overlapping_genes() {
     const auto ref = annotation({{100, 200}, {400, 500}});
     const vector<LocalPathResult> paths = {
@@ -166,6 +191,7 @@ int main() {
     try {
         test_cds_overlap();
         test_filter_before_ranking_and_deduplication();
+        test_raw_keeps_every_path_and_gene();
         test_intron_only_and_multiple_overlapping_genes();
         test_splice_site_jaccard();
         test_ranked_candidates_report_jaccard();

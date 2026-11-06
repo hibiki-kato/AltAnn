@@ -188,9 +188,11 @@ bool shares_cds_base(const TranscriptAnnotation &reference,
 // Distinct state paths may describe the same retained annotation. Filter each
 // path to genes sharing CDS bases with its own global-best reference, then
 // collapse duplicates while retaining the original whole-path score order.
+// Raw mode skips both steps: every gene of every path is returned, and rank is
+// the decoder's path index, so a path without genes still consumes a rank.
 vector<LocalKBestCandidate> rank_annotations(
     const vector<LocalPathResult> &paths, const TranscriptAnnotation &ref,
-    const string &seqid, double ref_fixed_score, int K
+    const string &seqid, double ref_fixed_score, int K, bool raw = false
 ) {
     vector<LocalKBestCandidate> unique_candidates;
     set<string> seen;
@@ -199,20 +201,28 @@ vector<LocalKBestCandidate> rank_annotations(
     // consume ranks. Multiple overlapping genes still share one path rank.
     int rank_count = 0;
     for (const auto &path : paths) {
+        if (raw) ++rank_count;
         auto anns = build_transcript_annotations(path.path_positions, path.path_states, seqid);
         vector<size_t> retained;
-        for (size_t j = 0; j < anns.size(); ++j)
-            if (shares_cds_base(ref, anns[j])) retained.push_back(j);
+        size_t overlapping = 0;
+        for (size_t j = 0; j < anns.size(); ++j) {
+            const bool overlaps = shares_cds_base(ref, anns[j]);
+            overlapping += overlaps;
+            if (raw || overlaps) retained.push_back(j);
+        }
         if (retained.empty()) continue;
 
-        string key;
-        for (size_t j : retained) key += full_transcript_key(anns[j]) + "|";
-        if (!seen.insert(key).second) continue;
+        if (!raw) {
+            string key;
+            for (size_t j : retained) key += full_transcript_key(anns[j]) + "|";
+            if (!seen.insert(key).second) continue;
+            ++rank_count;
+        }
 
-        ++rank_count;
         const string ref_key = full_transcript_key(ref);
         for (size_t j : retained) {
             TranscriptAnnotation ann = anns[j];
+            const bool overlaps = shares_cds_base(ref, ann);
             ann.score = path.score;
 
             LocalKBestCandidate cand;
@@ -226,10 +236,12 @@ vector<LocalKBestCandidate> rank_annotations(
             // when unrelated genes were omitted from the exported annotation.
             cand.genes_in_path = static_cast<int>(anns.size());
             cand.gene_in_path = static_cast<int>(j) + 1;
-            cand.classification = classify_splice_difference(ref, ann);
-            cand.splice_jaccard = splice_site_jaccard(ref, ann);
+            // Two disjoint intronless genes would otherwise compare as identical.
+            cand.classification = overlaps ? classify_splice_difference(ref, ann)
+                                           : "no_cds_overlap";
+            cand.splice_jaccard = overlaps ? splice_site_jaccard(ref, ann) : 0.0;
             cand.identical_to_reference =
-                (retained.size() == 1 && full_transcript_key(ann) == ref_key);
+                (overlapping == 1 && overlaps && full_transcript_key(ann) == ref_key);
             unique_candidates.push_back(cand);
         }
         if (rank_count >= K) break;
@@ -312,7 +324,7 @@ LocusOutput decode_locus(
 
     const auto paths = search_paths(L_bound, R_bound, initial_metadata, inputs, options);
 
-    const auto unique_candidates = rank_annotations(paths, ref, seqid, ref_fixed_score, options.k);
+    const auto unique_candidates = rank_annotations(paths, ref, seqid, ref_fixed_score, options.k, options.raw);
 
     // The search interval is reported as a locus; each gene of each ranked
     // path becomes its own gene record inside it.

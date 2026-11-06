@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `altann decode --raw` to export every gene of every decoded path, without
+  the CDS-overlap filter or annotation and intron-chain deduplication. Default
+  output is unchanged.
+
 - Add `altann score` to replay supplied GFF3/GTF CDS models under the native
   model and report their delta to the global-best path on the decoder window,
   or the first forbidden transition.
