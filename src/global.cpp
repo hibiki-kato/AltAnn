@@ -1,17 +1,39 @@
 // Adapted from UniAnn by Aleksey Zimin and contributors. See THIRD_PARTY.md.
 #include "altann.hpp"
 
-Baseline load_baseline_log(const ModelInputs &inputs, const string &path) {
+namespace {
+// One signed byte per state retains the traceback; the final path is compact.
+using Traceback = vector<array<int8_t, NUM_STATES>>;
+
+StatePath trace_path(const Traceback &traceback, int state) {
+    const int length = traceback.size();
+    vector<int> starts;
+    vector<int8_t> states;
+    for (int position = length - 1; position >= 0; --position) {
+        if (state < 0 || state >= NUM_STATES) throw runtime_error("Invalid baseline traceback");
+        const int previous = position > 0 ? traceback[position][state] : state;
+        if (position == 0 || previous != state) {
+            starts.push_back(position);
+            states.push_back(static_cast<int8_t>(state));
+        }
+        state = previous;
+    }
+    reverse(starts.begin(), starts.end());
+    reverse(states.begin(), states.end());
+    return StatePath(std::move(starts), std::move(states), length);
+}
+}
+
+Baseline load_baseline_log(const ScoreSource &source, const string &path) {
     ifstream log(path);
     if (!log) throw runtime_error("Cannot open Viterbi log: " + path);
-    const int length = inputs.seq.size();
+    const int length = source.length();
+    ScoreCursor cursor(source);
     struct Cell { double score; PathMetadata metadata; };
     array<Cell, NUM_STATES> previous{}, current{};
     array<int, NUM_STATES> logged_scores{};
-    vector<array<int8_t, NUM_STATES>> traceback(length);
+    Traceback traceback(length);
     Baseline result;
-    result.noncoding_prefix.resize(length);
-    result.states.resize(length);
     int expected_position = 0;
     bool expect_traceback = false;
     size_t line_number = 0;
@@ -54,6 +76,7 @@ Baseline load_baseline_log(const ModelInputs &inputs, const string &path) {
             expect_traceback = true;
             continue;
         }
+        const auto inputs = cursor.at(position);
         for (int state = 0; state < NUM_STATES; ++state) {
             const int from = values[state];
             if (position == 0) {
@@ -87,7 +110,7 @@ Baseline load_baseline_log(const ModelInputs &inputs, const string &path) {
             traceback[position][state] = static_cast<int8_t>(from);
         }
         previous.swap(current);
-        result.noncoding_prefix[position] = previous[0].metadata;
+        result.noncoding_prefix.append(position, previous[0].metadata);
         ++expected_position;
         expect_traceback = false;
     }
@@ -97,31 +120,28 @@ Baseline load_baseline_log(const ModelInputs &inputs, const string &path) {
     int state = 0;
     for (int candidate = 1; candidate < NUM_STATES; ++candidate)
         if (previous[candidate].score > previous[state].score) state = candidate;
-    for (int position = length - 1; position >= 0; --position) {
-        result.states[position] = state;
-        state = traceback[position][state];
-    }
+    result.states = trace_path(traceback, state);
     return result;
 }
 
-Baseline decode_baseline(const ModelInputs &inputs) {
-    const int length = inputs.seq.size();
+Baseline decode_baseline(const ScoreSource &source) {
+    const int length = source.length();
     struct Cell { double score; PathMetadata metadata; };
     array<Cell, NUM_STATES> previous{}, current{};
-    vector<array<int8_t, NUM_STATES>> traceback(length);
+    Traceback traceback(length);
     Baseline result;
-    result.noncoding_prefix.resize(length);
-    result.states.resize(length);
+    ScoreCursor cursor(source);
+    const auto initial = cursor.at(0);
     for (int state = 0; state < NUM_STATES; ++state) {
-        previous[state].score = (state == 0 ? 0.0 : NEG_INF) + inputs.emit[0][state];
+        previous[state].score = (state == 0 ? 0.0 : NEG_INF) + initial.emit[0][state];
         previous[state].metadata = {is_intron(state) ? 1 : 0,
                                    is_exon(state) ? 1 : 0, state == 0 ? 1 : 0, 0, -1};
         traceback[0][state] = -1;
     }
-    result.noncoding_prefix[0] = previous[0].metadata;
-    // Only seven scores are needed at once. One signed byte per state retains
-    // the traceback; only N prefix metadata is needed by local decoding.
+    result.noncoding_prefix.append(0, previous[0].metadata);
+    // Only seven scores are needed at once.
     for (int position = 1; position < length; ++position) {
+        const auto inputs = cursor.at(position);
         for (int to = 0; to < NUM_STATES; ++to) {
             double best = -1e18;
             int best_from = -1;
@@ -143,15 +163,11 @@ Baseline decode_baseline(const ModelInputs &inputs) {
             traceback[position][to] = static_cast<int8_t>(best_from);
         }
         previous.swap(current);
-        result.noncoding_prefix[position] = previous[0].metadata;
+        result.noncoding_prefix.append(position, previous[0].metadata);
     }
     int state = 0;
     for (int candidate = 1; candidate < NUM_STATES; ++candidate)
         if (previous[candidate].score > previous[state].score) state = candidate;
-    for (int position = length - 1; position >= 0; --position) {
-        if (state < 0 || state >= NUM_STATES) throw runtime_error("Invalid baseline traceback");
-        result.states[position] = state;
-        state = traceback[position][state];
-    }
+    result.states = trace_path(traceback, state);
     return result;
 }

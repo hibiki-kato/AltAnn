@@ -4,6 +4,7 @@
 // each retained path and does not create additional states.
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -96,15 +97,80 @@ inline bool is_intron(int s) {
 
 // Producers round emissions to decimal text; retain UniAnn's float storage.
 // Accumulated path scores and position-specific transition scores use double.
+template <class T>
+struct PositionWindow {
+    const T *values = nullptr;
+    int first = 0;
+    int count = 0;
+    const T &operator[](int position) const {
+        assert(position >= first && position - first < count);
+        return values[position - first];
+    }
+};
+
+// Scores are only readable inside one loaded window, addressed by sequence
+// position. Sequence and transition tables stay available for the whole record.
 struct ModelInputs {
-    const vector<array<float, NUM_STATES>> &emit;
-    const vector<double> &gt_score;
-    const vector<double> &ag_score;
-    const vector<double> &atg_score;
-    const vector<double> &stop_score;
+    PositionWindow<array<float, NUM_STATES>> emit;
+    PositionWindow<double> gt_score;
+    PositionWindow<double> ag_score;
+    PositionWindow<double> atg_score;
+    PositionWindow<double> stop_score;
     const vector<char> &seq;
     const vector<vector<double>> &trans;
 };
+
+// One loaded interval of the score tables, with the same layout as ModelInputs.
+class ScoreWindow {
+public:
+    ModelInputs inputs() const;
+private:
+    friend class ScoreSource;
+    const vector<char> *seq_ = nullptr;
+    const vector<vector<double>> *trans_ = nullptr;
+    int first_ = 0;
+    vector<array<float, NUM_STATES>> emit_;
+    array<vector<double>, 4> sparse_;  // GT, AG, ATG, stop
+};
+
+// Validates the score tables once, then serves any interval on demand. Emissions
+// stay in the input file behind a position index; only the motif tables, which
+// are sparse, are held in memory.
+class ScoreSource {
+public:
+    struct ByteRange { uint64_t begin = numeric_limits<uint64_t>::max(); uint64_t end = 0; };
+    ScoreSource(const vector<char> &seq, const vector<vector<double>> &trans,
+                const string &emissions, const array<string, 4> &sparse);
+    int length() const { return static_cast<int>(seq_.size()); }
+    // Interval [first, last], clipped to the sequence. Thread-safe.
+    ScoreWindow window(int first, int last) const;
+private:
+    struct SparseScores { vector<int> positions; vector<double> values; };
+    const vector<char> &seq_;
+    const vector<vector<double>> &trans_;
+    string emissions_path_;
+    vector<ByteRange> emission_ranges_;
+    array<SparseScores, 4> sparse_;
+};
+
+// Forward walk over the sequence, holding one block of scores at a time. Every
+// emission row is parsed and validated once by a complete walk.
+class ScoreCursor {
+public:
+    explicit ScoreCursor(const ScoreSource &source) : source_(source) {}
+    // Scores for a transition into position, including its motif offsets.
+    ModelInputs at(int position);
+private:
+    const ScoreSource &source_;
+    ScoreWindow window_;
+    int loaded_last_ = -1;
+};
+
+// Decoding a transition reads the destination, its successor (TAG/AG emission
+// rule) and up to two earlier bases (motif starts).
+inline ScoreWindow transition_window(const ScoreSource &source, int first_position, int last_position) {
+    return source.window(first_position - 2, last_position + 1);
+}
 
 struct TransitionResult {
     bool allowed = false;
@@ -124,30 +190,72 @@ struct Options {
     bool raw = false;
 };
 struct Fasta { string id; vector<char> sequence; };
+// Run-length encoded state path over a whole sequence.
+class StatePath {
+public:
+    StatePath() = default;
+    // Runs in ascending start order; the first run starts at position 0.
+    StatePath(vector<int> run_starts, vector<int8_t> run_states, int length)
+        : run_starts_(std::move(run_starts)), run_states_(std::move(run_states)), length_(length) {}
+    int size() const { return length_; }
+    int operator[](int position) const {
+        const auto next = upper_bound(run_starts_.begin(), run_starts_.end(), position);
+        return run_states_[next - run_starts_.begin() - 1];
+    }
+    const vector<int> &run_starts() const { return run_starts_; }
+    const vector<int8_t> &run_states() const { return run_states_; }
+private:
+    vector<int> run_starts_;
+    vector<int8_t> run_states_;
+    int length_ = 0;
+};
+
+// Metadata of the winning N cell at each base, needed for capped windows. An N
+// cell only carries inter_len and its predecessor, and N->N steps just increment
+// inter_len, so only the positions breaking that pattern are stored.
+class NoncodingPrefix {
+public:
+    void append(int position, const PathMetadata &metadata) {
+        if (!anchors_.empty() && metadata.predecessor_state == 0 &&
+            metadata.inter_len == anchors_.back().inter_len + position - anchors_.back().position)
+            return;
+        anchors_.push_back({position, metadata.inter_len, metadata.predecessor_state});
+    }
+    PathMetadata operator[](int position) const {
+        const auto next = upper_bound(anchors_.begin(), anchors_.end(), position,
+            [](int value, const Anchor &anchor) { return value < anchor.position; });
+        const Anchor &anchor = *(next - 1);
+        PathMetadata metadata;
+        metadata.inter_len = anchor.inter_len + position - anchor.position;
+        metadata.predecessor_state = position == anchor.position ? anchor.predecessor_state : 0;
+        return metadata;
+    }
+private:
+    struct Anchor { int position; int inter_len; int predecessor_state; };
+    vector<Anchor> anchors_;
+};
+
 struct Baseline {
-    vector<int> states;
-    // Metadata of the winning N prefix at each base, needed for capped windows.
-    vector<PathMetadata> noncoding_prefix;
+    StatePath states;
+    NoncodingPrefix noncoding_prefix;
 };
 Fasta read_fasta(const string &path);
-vector<array<float, NUM_STATES>> load_emissions(const string &, int);
-vector<double> load_sparse_scores(const string &, int);
 vector<vector<double>> init_transitions();
 int splice_motif_start_0based(int);
 int codon_start_0based(int);
 TransitionResult evaluate_transition(int, int, int, const PathMetadata &, const ModelInputs &);
-Baseline decode_baseline(const ModelInputs &);
-Baseline load_baseline_log(const ModelInputs &, const string &);
+Baseline decode_baseline(const ScoreSource &);
+Baseline load_baseline_log(const ScoreSource &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const vector<int> &, const vector<int> &, const string &);
-vector<TranscriptAnnotation> build_transcript_annotations(const vector<int> &, const string &);
+vector<TranscriptAnnotation> build_transcript_annotations(const StatePath &, const string &);
 string intron_chain_key(const TranscriptAnnotation &);
 string full_transcript_key(const TranscriptAnnotation &);
 string classify_splice_difference(const TranscriptAnnotation &, const TranscriptAnnotation &);
 double splice_site_jaccard(const TranscriptAnnotation &, const TranscriptAnnotation &);
 string tsv_escape_chain(const TranscriptAnnotation &);
 void write_hierarchical_transcript(ostream &, const TranscriptAnnotation &, const string &, const string &);
-void run_model_scoring(const string &, const vector<TranscriptAnnotation> &, const Baseline &, const ModelInputs &, const Options &);
-bool run_local_k_best(const string &, const vector<TranscriptAnnotation> &, const vector<int> &, const vector<PathMetadata> &, const ModelInputs &, const Options &);
+void run_model_scoring(const string &, const vector<TranscriptAnnotation> &, const Baseline &, const ScoreSource &, const Options &);
+bool run_local_k_best(const string &, const vector<TranscriptAnnotation> &, const Baseline &, const ScoreSource &, const Options &);
 
 // Stage the complete output bundle; preserve prior files if publication fails.
 void write_output_bundle(const vector<pair<string, string>> &files);

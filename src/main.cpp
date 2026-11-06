@@ -76,25 +76,19 @@ int main(int argc, char **argv) {
             }
         }
         const auto fasta = read_fasta(argv[1]);
-        const int length = fasta.sequence.size();
-        const auto emissions = load_emissions(argv[2], length);
-        const auto gt = load_sparse_scores(argv[3], length);
-        const auto ag = load_sparse_scores(argv[4], length);
-        const auto atg = load_sparse_scores(argv[5], length);
-        const auto stop = load_sparse_scores(argv[6], length);
         const auto transitions = init_transitions();
-        const ModelInputs inputs{emissions, gt, ag, atg, stop, fasta.sequence, transitions};
+        const ScoreSource source(fasta.sequence, transitions, argv[2],
+                                 {argv[3], argv[4], argv[5], argv[6]});
         const auto baseline = options.viterbi_log_filename.empty()
-            ? decode_baseline(inputs)
-            : load_baseline_log(inputs, options.viterbi_log_filename);
+            ? decode_baseline(source)
+            : load_baseline_log(source, options.viterbi_log_filename);
         const auto references = build_transcript_annotations(baseline.states, fasta.id);
         if (scoring) {
-            run_model_scoring(fasta.id, references, baseline, inputs, options);
+            run_model_scoring(fasta.id, references, baseline, source, options);
             cerr << "Scored models against " << references.size() << " reference loci\n";
             return 0;
         }
-        if (!run_local_k_best(fasta.id, references, baseline.states,
-                              baseline.noncoding_prefix, inputs, options)) return 1;
+        if (!run_local_k_best(fasta.id, references, baseline, source, options)) return 1;
         cerr << "Decoded " << references.size() << " reference loci\n";
         return 0;
     } catch (const exception &error) {

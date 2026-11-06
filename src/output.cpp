@@ -5,81 +5,93 @@
 // Internal intervals are half-open; GFF features use one-based closed bounds.
 // The raw source column remains UniAnn for snapshot compatibility. The CLI's
 // export layer maps strand/segment coordinates and adds AltAnn score attributes.
+namespace {
+// Only state changes affect the annotation, so a run-length path needs no expansion.
+class TranscriptBuilder {
+public:
+    explicit TranscriptBuilder(const string &seqid) : seqid_(seqid) {}
+
+    void step(int from, int to, int dp_position) {
+        if (!inside_ && from == 0 && is_exon(to)) {
+            inside_ = true;
+            current_ = TranscriptAnnotation{};
+            current_.sequence_id = seqid_;
+            current_.strand = '+';
+            current_.path_start = dp_position;
+            current_.genomic_start_0based = codon_start_0based(dp_position);
+            exon_start_ = current_.genomic_start_0based;
+            pending_donor_ = -1;
+        }
+        if (!inside_) return;
+
+        if (is_exon(from) && is_intron(to)) {
+            const int donor = splice_motif_start_0based(dp_position);
+            if (exon_start_ < 0 || donor <= exon_start_) {
+                inside_ = false;
+                return;
+            }
+            current_.exons.push_back({exon_start_, donor});
+            current_.cds_intervals.push_back({exon_start_, donor});
+            pending_donor_ = donor;
+        } else if (is_intron(from) && is_exon(to)) {
+            const int acceptor = splice_motif_start_0based(dp_position);
+            if (pending_donor_ < 0 || acceptor < pending_donor_) {
+                inside_ = false;
+                return;
+            }
+            current_.junctions.push_back({pending_donor_, acceptor, '+'});
+            exon_start_ = acceptor + 2;
+            pending_donor_ = -1;
+        } else if (is_exon(from) && to == 0) {
+            const int transcript_end = dp_position + 1;
+            if (exon_start_ < 0 || transcript_end <= exon_start_ ||
+                pending_donor_ >= 0) {
+                inside_ = false;
+                return;
+            }
+            current_.exons.push_back({exon_start_, transcript_end});
+            current_.cds_intervals.push_back({exon_start_, transcript_end});
+            current_.path_end = dp_position;
+            current_.genomic_end_0based_exclusive = transcript_end;
+            transcripts_.push_back(current_);
+            inside_ = false;
+            exon_start_ = -1;
+        }
+    }
+
+    vector<TranscriptAnnotation> transcripts_;
+
+private:
+    string seqid_;
+    bool inside_ = false;
+    int exon_start_ = -1;
+    int pending_donor_ = -1;
+    TranscriptAnnotation current_;
+};
+}
+
 vector<TranscriptAnnotation> build_transcript_annotations(
     const vector<int> &positions,
     const vector<int> &states,
     const string &seqid
 ) {
-    vector<TranscriptAnnotation> transcripts;
-    if (positions.size() != states.size() || states.size() < 2) return transcripts;
-
-    bool inside = false;
-    int exon_start = -1;
-    int pending_donor = -1;
-    TranscriptAnnotation current;
-    current.sequence_id = seqid;
-
-    for (size_t k = 1; k < states.size(); ++k) {
-        const int from = states[k - 1];
-        const int to = states[k];
-        const int dp_position = positions[k];
-
-        if (!inside && from == 0 && is_exon(to)) {
-            inside = true;
-            current = TranscriptAnnotation{};
-            current.sequence_id = seqid;
-            current.strand = '+';
-            current.path_start = dp_position;
-            current.genomic_start_0based = codon_start_0based(dp_position);
-            exon_start = current.genomic_start_0based;
-            pending_donor = -1;
-        }
-        if (!inside) continue;
-
-        if (is_exon(from) && is_intron(to)) {
-            const int donor = splice_motif_start_0based(dp_position);
-            if (exon_start < 0 || donor <= exon_start) {
-                inside = false;
-                continue;
-            }
-            current.exons.push_back({exon_start, donor});
-            current.cds_intervals.push_back({exon_start, donor});
-            pending_donor = donor;
-        } else if (is_intron(from) && is_exon(to)) {
-            const int acceptor = splice_motif_start_0based(dp_position);
-            if (pending_donor < 0 || acceptor < pending_donor) {
-                inside = false;
-                continue;
-            }
-            current.junctions.push_back({pending_donor, acceptor, '+'});
-            exon_start = acceptor + 2;
-            pending_donor = -1;
-        } else if (is_exon(from) && to == 0) {
-            const int transcript_end = dp_position + 1;
-            if (exon_start < 0 || transcript_end <= exon_start ||
-                pending_donor >= 0) {
-                inside = false;
-                continue;
-            }
-            current.exons.push_back({exon_start, transcript_end});
-            current.cds_intervals.push_back({exon_start, transcript_end});
-            current.path_end = dp_position;
-            current.genomic_end_0based_exclusive = transcript_end;
-            transcripts.push_back(current);
-            inside = false;
-            exon_start = -1;
-        }
-    }
-    return transcripts;
+    TranscriptBuilder builder(seqid);
+    if (positions.size() != states.size() || states.size() < 2) return builder.transcripts_;
+    for (size_t k = 1; k < states.size(); ++k)
+        builder.step(states[k - 1], states[k], positions[k]);
+    return builder.transcripts_;
 }
 
 vector<TranscriptAnnotation> build_transcript_annotations(
-    const vector<int> &states,
+    const StatePath &path,
     const string &seqid
 ) {
-    vector<int> positions(states.size());
-    for (size_t i = 0; i < positions.size(); ++i) positions[i] = i;
-    return build_transcript_annotations(positions, states, seqid);
+    TranscriptBuilder builder(seqid);
+    const auto &starts = path.run_starts();
+    const auto &states = path.run_states();
+    for (size_t run = 1; run < starts.size(); ++run)
+        builder.step(states[run - 1], states[run], starts[run]);
+    return builder.transcripts_;
 }
 
 string intron_chain_key(const TranscriptAnnotation &transcript) {

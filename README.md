@@ -360,11 +360,14 @@ junction are common reasons, so `forbidden` means "outside the model", not
 ## Performance and development
 
 `--threads auto` uses CPUs available to the process. `--threads N` provides
-explicit control. Memory grows with sequence length and with the number and
-length of loci decoded concurrently; use a smaller count on memory-constrained
-machines. Auto currently selects CPUs, not a memory budget.
+explicit control. Memory grows slowly with sequence length, about 10 MB per Mb,
+and with the number and length of loci decoded concurrently; use a smaller
+count on memory-constrained machines. Auto currently selects CPUs, not a memory
+budget. A 235 Mb test sequence peaked at 2.4 GB with K = 10, so chromosomes need
+no splitting for AltAnn itself.
 
-The global pass keeps rolling scores and compact traceback. The local pass
+The global pass walks the emission file forward with rolling scores and a compact
+traceback. The local pass reads only each locus's window from that file,
 parallelizes independent loci with OpenMP and writes results in fixed order.
 The Python frontend sorts the exported annotations. A sequence's candidate
 annotations are held in memory during conversion.

@@ -21,6 +21,9 @@ position  N  E0  E1  E2  I  [nucleotide]
 The first line above describes columns; it is not a literal file header.
 Positions are zero based. Exactly one row is required for every FASTA position.
 All five scores must be finite. The optional final column is one DNA symbol.
+Rows may be in any order, but the file must be seekable, because AltAnn reads
+each locus's rows from it on demand and does not hold them in memory. Ascending
+or descending order keeps those reads short; a shuffled table works but is slow.
 The seven-state model is `N, E0, E1, E2, I0, I1, I2`: the intron score in the
 file is shared by the three intron states.
 

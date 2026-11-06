@@ -12,7 +12,9 @@ vector<GenomicInterval> round_trip(const vector<GenomicInterval> &cds, int lengt
     require(model_states(cds, length, first, states).empty(), "model converts");
     vector<int> path(length, 0);
     for (size_t i = 0; i < states.size(); ++i) path[first + i] = states[i];
-    const auto annotations = build_transcript_annotations(path, "fixture");
+    vector<int> positions(path.size());
+    for (size_t i = 0; i < positions.size(); ++i) positions[i] = i;
+    const auto annotations = build_transcript_annotations(positions, path, "fixture");
     require(annotations.size() == 1, "one transcript is rebuilt");
     return annotations[0].cds_intervals;
 }
