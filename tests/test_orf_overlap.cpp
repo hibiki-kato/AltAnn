@@ -23,18 +23,95 @@ TranscriptAnnotation annotation(vector<GenomicInterval> cds,
 
 // The state switches use the same codon-coordinate convention as the native
 // annotation builder: start+2 is N->E; end-1 is E->N.
+StatePath run_length(const vector<int> &states) {
+    vector<int> starts;
+    vector<int8_t> runs;
+    for (size_t p = 0; p < states.size(); ++p)
+        if (p == 0 || states[p] != states[p - 1]) {
+            starts.push_back(p);
+            runs.push_back(states[p]);
+        }
+    return StatePath(starts, runs, states.size());
+}
+
 LocalPathResult path(vector<GenomicInterval> genes, double score,
                      vector<double> start_scores) {
     LocalPathResult result;
     result.score = score;
     result.start_scores = start_scores;
     const int length = genes.empty() ? 600 : genes.back().end_0based_exclusive + 2;
-    result.path_states.assign(length, 0);
-    for (int p = 0; p < length; ++p) result.path_positions.push_back(p);
+    vector<int> states(length, 0);
     for (const auto &gene : genes)
         for (int p = gene.start_0based + 2; p < gene.end_0based_exclusive - 1; ++p)
-            result.path_states[p] = 1;
+            states[p] = 1;
+    result.path = run_length(states);
     return result;
+}
+
+void test_backpointer_spill_round_trip() {
+    const size_t cells = 7 * 3;
+    const size_t row_bytes = cells * sizeof(CompactBP);
+    // Limits and block sizes that keep everything in memory, split rows across
+    // blocks with a partial last block, and hold one row per block.
+    for (const auto &[limit, block] : vector<pair<size_t, size_t>>{
+             {size_t(1) << 30, row_bytes}, {0, 4 * row_bytes}, {0, row_bytes}, {0, 1}}) {
+        for (size_t rows : {size_t(1), size_t(4), size_t(5), size_t(41)}) {
+            TracebackBudget budget(limit);
+            BackpointerStore store(rows, cells, budget, ".", block);
+            require(store.spilling() == (limit == 0), "the budget decides where a traceback lives");
+            for (size_t row = 0; row < rows; ++row) {
+                CompactBP *cell = store.write_row(row);
+                require(cell[cells - 1].bt_state == -1, "a new row starts unset");
+                cell[0] = CompactBP{static_cast<int16_t>(row % 7), static_cast<int16_t>(row)};
+                cell[cells - 1] = CompactBP{static_cast<int16_t>(row % 5), static_cast<int16_t>(rows - row)};
+            }
+            store.finish_writes();
+            for (size_t row = rows; row-- > 0;) {
+                const CompactBP *cell = store.read_row(row);
+                require(cell[0].bt_state == static_cast<int16_t>(row % 7) &&
+                        cell[0].bt_k == static_cast<int16_t>(row), "first cell survives the round trip");
+                require(cell[cells - 1].bt_state == static_cast<int16_t>(row % 5) &&
+                        cell[cells - 1].bt_k == static_cast<int16_t>(rows - row),
+                        "last cell survives the round trip");
+            }
+        }
+    }
+    bool rejected = false;
+    TracebackBudget empty(0);
+    try { BackpointerStore store(4, cells, empty, "./missing-spill-directory"); }
+    catch (const runtime_error &) { rejected = true; }
+    require(rejected, "an unusable spill directory is reported");
+}
+
+void test_traceback_budget_is_shared_across_loci() {
+    const size_t cells = 7;
+    const size_t row_bytes = cells * sizeof(CompactBP);
+    TracebackBudget budget(10 * row_bytes);
+    {
+        BackpointerStore first(6, cells, budget, ".");
+        BackpointerStore second(6, cells, budget, ".");
+        BackpointerStore third(4, cells, budget, ".");
+        require(!first.spilling(), "the first locus fits");
+        require(second.spilling(), "a concurrent locus over the remaining budget spills");
+        require(!third.spilling(), "a smaller locus still fits the remainder");
+        require(budget.available() == 0, "reservations stay within the budget");
+    }
+    require(budget.available() == 10 * row_bytes, "finished loci release their memory");
+
+    // Concurrent reservations can never exceed the budget.
+    TracebackBudget shared(100);
+    atomic<int> held{0}, peak{0};
+    #pragma omp parallel for num_threads(8)
+    for (int i = 0; i < 20000; ++i) {
+        if (!shared.try_reserve(10)) continue;
+        const int now = ++held;
+        int seen = peak.load();
+        while (now > seen && !peak.compare_exchange_weak(seen, now)) {}
+        --held;
+        shared.release(10);
+    }
+    require(peak.load() <= 10, "concurrent reservations stay within the budget");
+    require(shared.available() == 100, "concurrent releases restore the budget");
 }
 
 void test_cds_overlap() {
@@ -162,16 +239,18 @@ void test_splice_site_jaccard() {
 LocalPathResult spliced_path(vector<GenomicInterval> exons, double score) {
     auto result = path({{exons.front().start_0based, exons.back().end_0based_exclusive}},
                        score, {1});
+    vector<int> states(result.path.size());
+    for (size_t p = 0; p < states.size(); ++p) states[p] = result.path[p];
     for (size_t i = 0; i + 1 < exons.size(); ++i)
         for (int p = exons[i].end_0based_exclusive; p < exons[i + 1].start_0based; ++p)
-            result.path_states[p] = 4;
+            states[p] = 4;
+    result.path = run_length(states);
     return result;
 }
 
 void test_ranked_candidates_report_jaccard() {
     const auto ref_path = spliced_path({{100, 200}, {300, 400}, {500, 600}}, 85);
-    const auto ref = build_transcript_annotations(
-        ref_path.path_positions, ref_path.path_states, "fixture").at(0);
+    const auto ref = build_transcript_annotations(ref_path.path, "fixture").at(0);
     require(ref.junctions.size() == 2, "fixture reference has two introns");
     const vector<LocalPathResult> paths = {
         spliced_path({{100, 200}, {320, 420}, {520, 600}}, 100),  // 1 of 7 sites
@@ -190,6 +269,8 @@ void test_ranked_candidates_report_jaccard() {
 int main() {
     try {
         test_cds_overlap();
+        test_backpointer_spill_round_trip();
+        test_traceback_budget_is_shared_across_loci();
         test_filter_before_ranking_and_deduplication();
         test_raw_keeps_every_path_and_gene();
         test_intron_only_and_multiple_overlapping_genes();

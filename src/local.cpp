@@ -1,6 +1,13 @@
 // Adapted from UniAnn by Aleksey Zimin and contributors. See THIRD_PARTY.md.
 #include "altann.hpp"
 #include <omp.h>
+#include <unistd.h>
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <atomic>
+#include <future>
 
 // Local decoding retains K paths per coarse state. Search, annotation ranking,
 // and per-locus output are separate steps; the public runner only orchestrates
@@ -21,14 +28,12 @@ struct PathCandidate {
 };
 
 struct LocalPathResult {
-    vector<int> path_positions;
-    vector<int> path_states;
+    StatePath path;
     double score;
     // One ATG score per gene on the path, in genomic order. A local path may
     // contain zero, one or several genes.
     vector<double> start_scores;
 };
-
 
 struct LocalKBestCandidate {
     int rank;
@@ -57,11 +62,152 @@ struct CompactBP {
 
 struct LocusOutput { string gff, reference, report, error; };
 
+// Traceback memory shared by the loci decoding at the same time. Reserving never
+// waits: a locus that does not fit spills instead, so decoding order and the
+// number of threads cannot change results or deadlock.
+class TracebackBudget {
+public:
+    explicit TracebackBudget(size_t bytes) : available_(bytes) {}
+    bool try_reserve(size_t bytes) {
+        size_t available = available_.load();
+        while (available >= bytes)
+            if (available_.compare_exchange_weak(available, available - bytes)) return true;
+        return false;
+    }
+    void release(size_t bytes) { available_ += bytes; }
+    size_t available() const { return available_.load(); }
+private:
+    atomic<size_t> available_;
+};
+
+// Backpointer rows are written forward and read backward. A traceback that does
+// not fit the shared budget moves through an unlinked temporary file in blocks,
+// with each write and read-ahead running in the background while decoding
+// continues. A spilling locus holds at most two blocks in memory.
+class BackpointerStore {
+public:
+    BackpointerStore(size_t rows, size_t row_cells, TracebackBudget &budget,
+                     const string &spill_directory,
+                     size_t block_bytes = size_t(16) * 1024 * 1024)
+        : budget_(budget), rows_(rows), row_cells_(row_cells) {
+        const size_t row_bytes = row_cells * sizeof(CompactBP);
+        spilling_ = !budget_.try_reserve(rows * row_bytes);
+        reserved_ = spilling_ ? 0 : rows * row_bytes;
+        rows_per_block_ = spilling_ ? min(rows, max<size_t>(1, block_bytes / row_bytes)) : rows;
+        front_.assign(rows_per_block_ * row_cells, CompactBP{-1, -1});
+        if (!spilling_) return;
+        back_.resize(front_.size());
+        string path = (spill_directory.empty() ? string(".") : spill_directory) +
+                      "/.altann-traceback-XXXXXX";
+        descriptor_ = mkstemp(path.data());
+        if (descriptor_ < 0) throw runtime_error("Cannot create traceback file in " + spill_directory +
+                                                 ": " + strerror(errno));
+        unlink(path.c_str());
+    }
+    BackpointerStore(const BackpointerStore &) = delete;
+    BackpointerStore &operator=(const BackpointerStore &) = delete;
+    ~BackpointerStore() {
+        if (pending_.valid()) pending_.wait();
+        if (descriptor_ >= 0) close(descriptor_);
+        budget_.release(reserved_);
+    }
+
+    bool spilling() const { return spilling_; }
+
+    // Rows must be requested in ascending order. Unwritten cells hold {-1, -1}.
+    CompactBP *write_row(size_t row) {
+        const size_t block = row / rows_per_block_;
+        if (block != current_block_) {
+            write_block_in_background(current_block_);
+            current_block_ = block;
+            fill(front_.begin(), front_.end(), CompactBP{-1, -1});
+        }
+        return front_.data() + (row - block * rows_per_block_) * row_cells_;
+    }
+
+    // Call once after the last write_row; rows are then read in descending order.
+    void finish_writes() {
+        if (!spilling_) return;
+        write_block_in_background(current_block_);
+        pending_.get();
+        current_block_ = NO_BLOCK;
+    }
+
+    const CompactBP *read_row(size_t row) {
+        const size_t block = row / rows_per_block_;
+        if (block != current_block_) {
+            if (pending_.valid() && ahead_block_ == block) {
+                pending_.get();
+                front_.swap(back_);
+            } else {
+                if (pending_.valid()) pending_.get();
+                read_block(block, front_);
+            }
+            current_block_ = block;
+            if (block > 0) {
+                ahead_block_ = block - 1;
+                pending_ = async(launch::async, [this, ahead = block - 1] { read_block(ahead, back_); });
+            }
+        }
+        return front_.data() + (row - block * rows_per_block_) * row_cells_;
+    }
+
+private:
+    static constexpr size_t NO_BLOCK = numeric_limits<size_t>::max();
+
+    size_t block_cells(size_t block) const {
+        return min(rows_per_block_, rows_ - block * rows_per_block_) * row_cells_;
+    }
+    off_t block_offset(size_t block) const {
+        return static_cast<off_t>(block * rows_per_block_ * row_cells_ * sizeof(CompactBP));
+    }
+    void write_block_in_background(size_t block) {
+        if (pending_.valid()) pending_.get();
+        front_.swap(back_);
+        pending_ = async(launch::async, [this, block] {
+            const char *cursor = reinterpret_cast<const char *>(back_.data());
+            size_t remaining = block_cells(block) * sizeof(CompactBP);
+            off_t offset = block_offset(block);
+            while (remaining) {
+                const ssize_t written = pwrite(descriptor_, cursor, remaining, offset);
+                if (written < 0 && errno == EINTR) continue;
+                if (written <= 0) throw runtime_error(string("Cannot write traceback file: ") + strerror(errno));
+                cursor += written;
+                remaining -= written;
+                offset += written;
+            }
+        });
+    }
+    void read_block(size_t block, vector<CompactBP> &buffer) const {
+        char *cursor = reinterpret_cast<char *>(buffer.data());
+        size_t remaining = block_cells(block) * sizeof(CompactBP);
+        off_t offset = block_offset(block);
+        while (remaining) {
+            const ssize_t count = pread(descriptor_, cursor, remaining, offset);
+            if (count < 0 && errno == EINTR) continue;
+            if (count <= 0) throw runtime_error(string("Cannot read traceback file: ") + strerror(errno));
+            cursor += count;
+            remaining -= count;
+            offset += count;
+        }
+    }
+
+    TracebackBudget &budget_;
+    size_t reserved_ = 0;
+    size_t rows_, row_cells_, rows_per_block_ = 0;
+    bool spilling_ = false;
+    int descriptor_ = -1;
+    size_t current_block_ = 0, ahead_block_ = NO_BLOCK;
+    vector<CompactBP> front_, back_;
+    // Declared after its buffers: the destructor joins before they are freed.
+    future<void> pending_;
+};
+
 // Decode the bounded interval with both endpoint states pinned to N. This
 // function owns all local DP memory and returns paths in descending score order.
 vector<LocalPathResult> search_paths(
     int L_bound, int R_bound, const PathMetadata &initial_metadata,
-    const ModelInputs &inputs, const Options &options
+    const ModelInputs &inputs, const Options &options, TracebackBudget &budget
 ) {
     const int K = options.k;
     const int local_len = R_bound - L_bound + 1;
@@ -72,16 +218,15 @@ vector<LocalPathResult> search_paths(
     vector<vector<ActiveCell>> prev_dp(NUM_STATES, vector<ActiveCell>(K));
     vector<vector<ActiveCell>> curr_dp(NUM_STATES, vector<ActiveCell>(K));
     const size_t cells_per_position = static_cast<size_t>(NUM_STATES) * K;
-    if (static_cast<size_t>(local_len) > vector<CompactBP>().max_size() / cells_per_position)
-        throw runtime_error("Local traceback exceeds the supported allocation size");
-    vector<CompactBP> backpointers(static_cast<size_t>(local_len) * cells_per_position,
-                                   CompactBP{-1, -1});
+    BackpointerStore backpointers(local_len, cells_per_position, budget,
+                                  filesystem::path(options.output_filename).parent_path().string());
 
     prev_dp[0][0].dp = 0.0 + inputs.emit[L_bound][0];
     prev_dp[0][0].metadata = initial_metadata;
 
     for (int i = 1; i < local_len; i++) {
         int p = L_bound + i;
+        CompactBP *row = backpointers.write_row(i);
 
         for (int to = 0; to < NUM_STATES; to++) {
             vector<PathCandidate> candidates;
@@ -109,7 +254,7 @@ vector<LocalPathResult> search_paths(
             for (int k = 0; k < min(K, static_cast<int>(candidates.size())); k++) {
                 curr_dp[to][k].dp = candidates[k].score;
                 curr_dp[to][k].metadata = candidates[k].evaluated.next_metadata;
-                backpointers[static_cast<size_t>(i) * NUM_STATES * K + to * K + k] =
+                row[to * K + k] =
                     CompactBP{static_cast<int16_t>(candidates[k].from_state),
                               static_cast<int16_t>(candidates[k].from_k)};
             }
@@ -122,44 +267,50 @@ vector<LocalPathResult> search_paths(
         }
     }
 
-    vector<LocalPathResult> paths;
+    backpointers.finish_writes();
+
+    // All paths step back together, so one backward pass reads each row once.
+    struct Walker { LocalPathResult result; int state; int k; vector<int> starts; vector<int8_t> states; };
+    vector<Walker> walkers;
     for (int k = 0; k < K; k++) {
         if (prev_dp[0][k].dp <= NEG_INF) continue;
-
-        LocalPathResult res;
-        res.score = prev_dp[0][k].dp;
-
-        int cur_state = 0;
-        int cur_k = k;
-        bool valid = true;
-
-        for (int i = local_len - 1; i >= 0; i--) {
-            int p = L_bound + i;
-            res.path_positions.push_back(p);
-            res.path_states.push_back(cur_state);
-
-            if (i > 0) {
-                CompactBP bp = backpointers[static_cast<size_t>(i) * NUM_STATES * K +
-                                            cur_state * K + cur_k];
-                int next_state = bp.bt_state;
-                int next_k = bp.bt_k;
-                if (next_state < 0) { valid = false; break; }
-
-                if (next_state == 0 && is_exon(cur_state)) {
-                    res.start_scores.push_back(inputs.atg_score[codon_start_0based(p)]);
-                }
-
-                cur_state = next_state;
-                cur_k = next_k;
+        Walker walker{};
+        walker.result.score = prev_dp[0][k].dp;
+        walker.state = 0;
+        walker.k = k;
+        walkers.push_back(std::move(walker));
+    }
+    for (int i = local_len - 1; i > 0 && !walkers.empty(); i--) {
+        const int p = L_bound + i;
+        const CompactBP *row = backpointers.read_row(i);
+        size_t kept = 0;
+        for (size_t w = 0; w < walkers.size(); ++w) {
+            Walker &walker = walkers[w];
+            const CompactBP bp = row[walker.state * K + walker.k];
+            if (bp.bt_state < 0) continue;
+            if (bp.bt_state == 0 && is_exon(walker.state))
+                walker.result.start_scores.push_back(inputs.atg_score[codon_start_0based(p)]);
+            if (bp.bt_state != walker.state) {
+                walker.starts.push_back(p);
+                walker.states.push_back(static_cast<int8_t>(walker.state));
             }
+            walker.state = bp.bt_state;
+            walker.k = bp.bt_k;
+            if (kept != w) walkers[kept] = std::move(walker);
+            ++kept;
         }
+        walkers.resize(kept);
+    }
 
-        if (valid) {
-            reverse(res.path_positions.begin(), res.path_positions.end());
-            reverse(res.path_states.begin(), res.path_states.end());
-            reverse(res.start_scores.begin(), res.start_scores.end());
-            paths.push_back(res);
-        }
+    vector<LocalPathResult> paths;
+    for (auto &walker : walkers) {
+        walker.starts.push_back(L_bound);
+        walker.states.push_back(static_cast<int8_t>(walker.state));
+        reverse(walker.starts.begin(), walker.starts.end());
+        reverse(walker.states.begin(), walker.states.end());
+        reverse(walker.result.start_scores.begin(), walker.result.start_scores.end());
+        walker.result.path = StatePath(std::move(walker.starts), std::move(walker.states), local_len);
+        paths.push_back(std::move(walker.result));
     }
 
     return paths;
@@ -202,7 +353,7 @@ vector<LocalKBestCandidate> rank_annotations(
     int rank_count = 0;
     for (const auto &path : paths) {
         if (raw) ++rank_count;
-        auto anns = build_transcript_annotations(path.path_positions, path.path_states, seqid);
+        auto anns = build_transcript_annotations(path.path, seqid);
         vector<size_t> retained;
         size_t overlapping = 0;
         for (size_t j = 0; j < anns.size(); ++j) {
@@ -256,7 +407,7 @@ LocusOutput decode_locus(
     size_t ref_idx, const string &seqid,
     const vector<TranscriptAnnotation> &references,
     const Baseline &baseline,
-    const ScoreSource &source, const Options &options
+    const ScoreSource &source, const Options &options, TracebackBudget &budget
 ) {
     const StatePath &global_path_states = baseline.states;
     const int L = source.length();
@@ -324,7 +475,7 @@ LocusOutput decode_locus(
         write_hierarchical_transcript(reference_out, reference, gene, gene + ".t1");
     }
 
-    const auto paths = search_paths(L_bound, R_bound, initial_metadata, inputs, options);
+    const auto paths = search_paths(L_bound, R_bound, initial_metadata, inputs, options, budget);
 
     const auto unique_candidates = rank_annotations(paths, ref, seqid, ref_fixed_score, options.k, options.raw);
 
@@ -396,6 +547,7 @@ bool run_local_k_best(
     // Each locus writes to independent buffers. Flush by reference index after
     // the parallel region, so scheduling never changes IDs or record order.
     vector<LocusOutput> outputs(references.size());
+    TracebackBudget budget(options.traceback_memory_bytes);
     const int requested_threads = options.threads > 0 ? options.threads : omp_get_num_procs();
     const int thread_count = max(1, min(requested_threads, static_cast<int>(references.size())));
     // There cannot be more loci than sequence bases (an int-sized input).
@@ -405,7 +557,7 @@ bool run_local_k_best(
     for (int ref_idx = 0; ref_idx < locus_count; ++ref_idx) {
         try {
             outputs[ref_idx] = decode_locus(ref_idx, seqid, references,
-                baseline, source, options);
+                baseline, source, options, budget);
         }
         catch (const exception &error) { outputs[ref_idx].error = error.what(); }
         catch (...) { outputs[ref_idx].error = "Unknown decoder error"; }
