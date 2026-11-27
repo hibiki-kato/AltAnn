@@ -192,6 +192,7 @@ struct Options {
     string report_filename;
     string viterbi_log_filename;
     string models_filename;
+    string junctions_filename;
     bool raw = false;
     bool uniann_gff = false;
     // Shared by all concurrent loci; tracebacks that do not fit spill to a
@@ -217,6 +218,13 @@ private:
     vector<int> run_starts_;
     vector<int8_t> run_states_;
     int length_ = 0;
+};
+
+struct LocalPathResult {
+    StatePath path;
+    double score;
+    // One ATG score per gene on the path, in genomic order.
+    vector<double> start_scores;
 };
 
 // Metadata of the winning N cell at each base, needed for capped windows. An N
@@ -266,6 +274,10 @@ double splice_site_jaccard(const TranscriptAnnotation &, const TranscriptAnnotat
 string tsv_escape_chain(const TranscriptAnnotation &);
 void write_hierarchical_transcript(ostream &, const TranscriptAnnotation &, const string &, const string &);
 void run_model_scoring(const string &, const vector<TranscriptAnnotation> &, const Baseline &, const ScoreSource &, const Options &);
+void run_junction_forcing(const string &, const vector<TranscriptAnnotation> &, const Baseline &, const ScoreSource &, const Options &);
+// allowed_states, when given, holds one state bitmask per window position.
+vector<LocalPathResult> search_paths(int, int, const PathMetadata &, const ModelInputs &, const Options &,
+                                   const vector<uint8_t> *allowed_states = nullptr);
 bool run_local_k_best(const string &, const vector<TranscriptAnnotation> &, const Baseline &, const ScoreSource &, const Options &);
 
 // Stage the complete output bundle; preserve prior files if publication fails.

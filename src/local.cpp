@@ -27,14 +27,6 @@ struct PathCandidate {
     }
 };
 
-struct LocalPathResult {
-    StatePath path;
-    double score;
-    // One ATG score per gene on the path, in genomic order. A local path may
-    // contain zero, one or several genes.
-    vector<double> start_scores;
-};
-
 struct LocalKBestCandidate {
     int rank;
     double score;        // score of the whole local path this gene belongs to
@@ -205,9 +197,11 @@ private:
 
 // Decode the bounded interval with both endpoint states pinned to N. This
 // function owns all local DP memory and returns paths in descending score order.
-vector<LocalPathResult> search_paths(
+// Cells whose state is absent from allowed_states stay unreachable.
+vector<LocalPathResult> search_paths_impl(
     int L_bound, int R_bound, const PathMetadata &initial_metadata,
-    const ModelInputs &inputs, const Options &options, TracebackBudget &budget
+    const ModelInputs &inputs, const Options &options, TracebackBudget &budget,
+    const vector<uint8_t> *allowed_states = nullptr
 ) {
     const int K = options.k;
     const int local_len = R_bound - L_bound + 1;
@@ -229,6 +223,7 @@ vector<LocalPathResult> search_paths(
         CompactBP *row = backpointers.write_row(i);
 
         for (int to = 0; to < NUM_STATES; to++) {
+            if (allowed_states && !((*allowed_states)[i] >> to & 1)) continue;
             vector<PathCandidate> candidates;
 
             for (int from = 0; from < NUM_STATES; from++) {
@@ -475,7 +470,7 @@ LocusOutput decode_locus(
         write_hierarchical_transcript(reference_out, reference, gene, gene + ".t1");
     }
 
-    const auto paths = search_paths(L_bound, R_bound, initial_metadata, inputs, options, budget);
+    const auto paths = search_paths_impl(L_bound, R_bound, initial_metadata, inputs, options, budget);
 
     const auto unique_candidates = rank_annotations(paths, ref, seqid, ref_fixed_score, options.k, options.raw);
 
@@ -523,6 +518,14 @@ LocusOutput decode_locus(
     return {gff_out.str(), reference_out.str(), tsv_out.str(), {}};
 }
 } // namespace
+
+vector<LocalPathResult> search_paths(
+    int left, int right, const PathMetadata &initial, const ModelInputs &inputs,
+    const Options &options, const vector<uint8_t> *allowed_states
+) {
+    TracebackBudget budget(options.traceback_memory_bytes);
+    return search_paths_impl(left, right, initial, inputs, options, budget, allowed_states);
+}
 
 bool run_local_k_best(
     const string &seqid,

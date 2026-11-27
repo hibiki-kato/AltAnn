@@ -20,6 +20,8 @@ void usage(ostream &out) {
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
         << "  [--score-models FILE] Score supplied CDS models instead of K-best decoding;\n"
         << "    FILE rows are ID<TAB>start-end,... (zero-based half-open); --report is unused.\n"
+        << "  [--force-junctions FILE] Decode the best gene through each row's introns and score it;\n"
+        << "    FILE rows are ID<TAB>start-end,... introns [GT, AG + 2) (zero-based half-open).\n"
         << "Coordinates and sequence orientation follow the input FASTA.\n"
         << "Threads 0 selects available CPUs; flank -1 selects whole intergenic bounds.\n";
 }
@@ -39,6 +41,7 @@ int main(int argc, char **argv) {
             else if (name == "--report") options.report_filename = value;
             else if (name == "--viterbi-log") options.viterbi_log_filename = value;
             else if (name == "--score-models") options.models_filename = value;
+            else if (name == "--force-junctions") options.junctions_filename = value;
             else if (name == "--k") options.k = integer_option(value, name);
             else if (name == "--flank") options.flank = integer_option(value, name);
             else if (name == "--threads") options.threads = value == "auto" ? 0 : integer_option(value, name);
@@ -53,7 +56,10 @@ int main(int argc, char **argv) {
         if (options.flank < -1 || options.flank > numeric_limits<int>::max() / 2)
             throw runtime_error("Flank must be -1 or a nonnegative supported distance");
         if (options.threads < 0) throw runtime_error("Threads must be nonnegative");
-        const bool scoring = !options.models_filename.empty();
+        const bool forcing = !options.junctions_filename.empty();
+        if (forcing && !options.models_filename.empty())
+            throw runtime_error("--force-junctions cannot be combined with --score-models");
+        const bool scoring = forcing || !options.models_filename.empty();
         if (options.uniann_gff && (scoring || options.raw || !options.output_filename.empty() ||
                                    !options.report_filename.empty()))
             throw runtime_error("--uniann-gff writes only to standard output and takes no other mode or output");
@@ -62,16 +68,16 @@ int main(int argc, char **argv) {
             throw runtime_error(scoring ? "--output is required"
                                         : "Both --output and --report are required");
         if (scoring && options.raw)
-            throw runtime_error("--raw cannot be combined with --score-models");
+            throw runtime_error("--raw cannot be combined with --score-models or --force-junctions");
         if (scoring && !options.report_filename.empty())
-            throw runtime_error("--report cannot be combined with --score-models");
+            throw runtime_error("--report cannot be combined with --score-models or --force-junctions");
         // Resolve existing symlinks and relative components before opening
         // outputs, so a typo cannot replace an input or alias another output.
         set<filesystem::path> output_paths;
         vector<string> input_paths(argv + 1, argv + 7);
         if (!options.viterbi_log_filename.empty())
             input_paths.push_back(options.viterbi_log_filename);
-        if (scoring) input_paths.push_back(options.models_filename);
+        if (scoring) input_paths.push_back(forcing ? options.junctions_filename : options.models_filename);
         vector<string> outputs;
         if (!options.uniann_gff) outputs.push_back(options.output_filename);
         if (!scoring && !options.uniann_gff) {
@@ -104,6 +110,11 @@ int main(int argc, char **argv) {
             return cout.good() ? 0 : 1;
         }
         const auto references = build_transcript_annotations(baseline.states, fasta.id);
+        if (forcing) {
+            run_junction_forcing(fasta.id, references, baseline, source, options);
+            cerr << "Forced junctions against " << references.size() << " reference loci\n";
+            return 0;
+        }
         if (scoring) {
             run_model_scoring(fasta.id, references, baseline, source, options);
             cerr << "Scored models against " << references.size() << " reference loci\n";
