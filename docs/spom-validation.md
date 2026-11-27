@@ -19,7 +19,7 @@ Paths below are relative to the project `DNA/` directory, containing `dev/`,
 | --- | --- | --- |
 | Genome | `data/basic_data/Spom/ref/genome.fna` | `fc3a90996a09d653880aea616e235c878a3224eb678f9d5f099b9d4821b29762` |
 | Raw reference | `data/basic_data/Spom/ref/annotation.gff3` | `97ef0f5f89be5ac1bd117b0cf65abcadaf142b51f8c49be23515633157f5851c` |
-| Frozen coding evaluation reference | `work/eviann_untrusted_cds_spom/reports/cds_loss_audit/protein_coding_reference.gff3` | `cab35be13c82e99fd266ae92ab89ef7efd09ec6d3ea0036851e85029b6f30031` |
+| Frozen coding evaluation reference | `work/archive/validation-20261021/eviann_untrusted_cds_spom/reports/cds_loss_audit/protein_coding_reference.gff3` | `cab35be13c82e99fd266ae92ab89ef7efd09ec6d3ea0036851e85029b6f30031` |
 | Available checkpoint | `dev/cnn-mamba/models/human_joint_frame_beta010_chr1held_epoch4_inference.pt` | `429904082463e9822ec83aa15cfd48b16cf0cdb6ff15ff4e7141316117f9c037` |
 | Checkpoint calibration | `dev/cnn-mamba/results/human_joint_frame_beta010_v1/temperature_scaling/temperature.json` | `52633f955c6c0a5d16c3f78dce9dbd9c8414a51fcddd7a4ffe479ba6f44689cc` |
 
