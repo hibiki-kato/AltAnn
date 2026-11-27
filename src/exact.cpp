@@ -412,3 +412,53 @@ vector<LocalPathResult> search_paths_exact(
     return exact_search(L_bound, R_bound, initial_metadata,
                         [&](int) -> const ModelInputs & { return inputs; }, options, budget, stats, true);
 }
+
+// Whole-sequence exact best path: K=1 over (coarse state, canonical metadata)
+// keys, the exact counterpart of decode_baseline. It starts from decode_baseline's
+// position-0 N cell and, like local search, ends in N. Scores are streamed through
+// a ScoreCursor and the traceback spills past --traceback-memory, so memory does
+// not grow with the sequence. The noncoding prefix holds this path's own N
+// metadata, which is where every local window starts.
+Baseline decode_baseline_exact(const ScoreSource &source, const Options &options) {
+    const int length = source.length();
+    PathMetadata initial;
+    initial.inter_len = 1;
+    Options single = options;
+    single.k = 1;
+    single.flank = max(single.flank, 0);  // keep the start-codon guard at position 0
+    single.verify_exact = false;           // replayed below in any case
+    TracebackBudget budget(options.traceback_memory_bytes);
+    ExactSearchStats stats;
+    vector<LocalPathResult> paths;
+    {
+        ScoreCursor cursor(source);
+        paths = exact_search(0, length - 1, initial, [&](int p) { return cursor.at(p); },
+                             single, budget, &stats, false);
+    }
+    if (paths.empty()) throw runtime_error("Exact baseline found no path ending in N");
+    cerr << "exact_baseline\tpositions=" << length << "\ttrace_MiB=" << stats.trace_bytes / 1048576.0
+         << "\tspilled_MiB=" << stats.spilled_bytes / 1048576.0 << '\n';
+    Baseline result;
+    result.states = std::move(paths[0].path);
+    ScoreCursor cursor(source);
+    PathMetadata meta = initial;
+    double score = cursor.at(0).emit[0][0];
+    int current = 0;
+    result.noncoding_prefix.append(0, meta);
+    for (int p = 1; p < length; ++p) {
+        const int next = result.states[p];
+        const auto edge = evaluate_transition(p, current, next, meta, cursor.at(p));
+        if (!edge.allowed)
+            throw runtime_error("Exact baseline replay hit a forbidden transition at " + to_string(p + 1));
+        score += edge.transition_score + edge.emission_score;
+        meta = edge.next_metadata;
+        current = next;
+        if (current == 0) result.noncoding_prefix.append(p, meta);
+    }
+    if (fabs(score - paths[0].score) > 1e-6 * max(1.0, fabs(score)))
+        throw runtime_error("Exact baseline replay score mismatch: " + to_string(score) + " vs " +
+                            to_string(paths[0].score));
+    result.final_scores.fill(NEG_INF);
+    result.final_scores[0] = score;
+    return result;
+}

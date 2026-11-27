@@ -198,6 +198,8 @@ struct Options {
     bool uniann_gff = false;
     // Exact K-best: keep K paths per (coarse state, transition-relevant metadata).
     bool metadata_states = false;
+    // Global best path by exact K=1 metadata-state search instead of UniAnn's decoder.
+    bool exact_baseline = false;
     // Replay each exact path with raw metadata and check its score.
     bool verify_exact = false;
     // Shared by all concurrent loci; tracebacks that do not fit spill to a
@@ -269,6 +271,7 @@ int splice_motif_start_0based(int);
 int codon_start_0based(int);
 TransitionResult evaluate_transition(int, int, int, const PathMetadata &, const ModelInputs &);
 Baseline decode_baseline(const ScoreSource &);
+Baseline decode_baseline_exact(const ScoreSource &, const Options &);
 Baseline load_baseline_log(const ScoreSource &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const vector<int> &, const vector<int> &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const StatePath &, const string &);
