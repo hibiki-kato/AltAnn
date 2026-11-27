@@ -187,6 +187,8 @@ struct TransitionResult {
 
 struct Options {
     int k = 10;
+    // Optional E-only rule; k remains the hard cap used by the exporter.
+    string adaptive_k_spec;
     int flank = 1000;
     int threads = 0;
     string output_filename;
@@ -207,6 +209,14 @@ struct Options {
     size_t traceback_memory_bytes = size_t(1024) * 1024 * 1024;
     string spill_dir;
 };
+struct AdaptiveKRule {
+    enum class Family { Fixed, Linear, ShiftedExponential };
+    Family family = Family::Fixed;
+    int cap = 10;
+    double base = 10, scale = 0, rate = 0;
+    int budget(size_t exon_count) const;
+};
+AdaptiveKRule parse_adaptive_k_rule(const string &spec, int cap);
 struct Fasta { string id; vector<char> sequence; };
 // Run-length encoded state path over a whole sequence.
 class StatePath {

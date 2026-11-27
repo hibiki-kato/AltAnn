@@ -504,7 +504,9 @@ LocusOutput decode_locus(
                 << (cand.identical_to_reference ? "1" : "0") << '\t'
                 << cand.classification << '\t' << L_bound + 1 << '\t'
                 << R_bound + 1 << '\t' << initial_metadata.inter_len << '\t'
-                << cand.splice_jaccard << '\n';
+                << cand.splice_jaccard;
+        if (!options.adaptive_k_spec.empty()) tsv_out << '\t' << options.k;
+        tsv_out << '\n';
     }
 
     LocusOutput output;
@@ -544,7 +546,9 @@ bool run_local_k_best(
             << "actual_start_score\tintron_chain\t"
             << "reference_intron_chain\t"
             << "identical_to_reference\tclassification\twindow_start_1based\twindow_end_1based\tinitial_inter_len\t"
-            << "splice_site_jaccard\n";
+            << "splice_site_jaccard";
+    if (!options.adaptive_k_spec.empty()) tsv_out << "\tsearch_k";
+    tsv_out << '\n';
 
     // Each locus writes to independent buffers. Flush by reference index after
     // the parallel region, so scheduling never changes IDs or record order.
@@ -555,11 +559,18 @@ bool run_local_k_best(
     // There cannot be more loci than sequence bases (an int-sized input).
     // A signed canonical loop is also accepted by older OpenMP front ends.
     const int locus_count = static_cast<int>(references.size());
+    const auto k_rule = parse_adaptive_k_rule(options.adaptive_k_spec, options.k);
+    vector<int> locus_k;
+    locus_k.reserve(references.size());
+    for (const auto &reference : references)
+        locus_k.push_back(k_rule.budget(reference.cds_intervals.size()));
     #pragma omp parallel for schedule(dynamic) num_threads(thread_count)
     for (int ref_idx = 0; ref_idx < locus_count; ++ref_idx) {
         try {
+            Options local_options = options;
+            local_options.k = locus_k[ref_idx];
             outputs[ref_idx] = decode_locus(ref_idx, seqid, references,
-                baseline, source, options, budget);
+                baseline, source, local_options, budget);
         }
         catch (const exception &error) { outputs[ref_idx].error = error.what(); }
         catch (...) { outputs[ref_idx].error = "Unknown decoder error"; }
@@ -592,6 +603,18 @@ bool run_local_k_best(
              << "\tmax_entries_row=" << total.max_entries_row << "\tmax_keys_row=" << total.max_slots_row
              << "\tmax_trace_MiB=" << max_trace / 1048576.0
              << "\tspilled_trace_MiB=" << total.spilled_bytes / 1048576.0;
+    if (!options.adaptive_k_spec.empty()) {
+        long double weighted = 0;
+        long long sum_k = 0;
+        for (size_t i = 0; i < locus_k.size(); ++i) {
+            sum_k += locus_k[i];
+            weighted += static_cast<long double>(locus_k[i]) * outputs[i].window_length;
+        }
+        cerr << "\tadaptive_min_k=" << (locus_k.empty() ? options.k : *min_element(locus_k.begin(), locus_k.end()))
+             << "\tadaptive_max_k=" << (locus_k.empty() ? options.k : *max_element(locus_k.begin(), locus_k.end()))
+             << "\tadaptive_mean_k=" << (locus_k.empty() ? 0.0 : double(sum_k) / locus_k.size())
+             << "\tadaptive_window_weighted_k=" << (positions ? double(weighted / positions) : 0.0);
+    }
     cerr << '\n';
     write_output_bundle({{options.output_filename, gff_out.str()},
                          {options.output_filename + ".reference.gff", reference_out.str()},
