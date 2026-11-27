@@ -14,8 +14,11 @@ void usage(ostream &out) {
     out << "Usage: altann-core FASTA EMISSIONS GT AG ATG STOP\n"
         << "  --output FILE --report FILE [--k 10] [--flank 1000] [--threads 0]\n"
         << "  [--traceback-memory 1024] MB of traceback shared by concurrent loci; the rest spills to a temporary file.\n"
+        << "  [--spill-dir DIR] Directory for that file (default: the output's directory).\n"
         << "  [--uniann-gff] Only decode the global best path and write it to standard output as the\n"
         << "    UniAnn binary does; standard error gets the final dp row. No other output is written.\n"
+        << "  [--metadata-states] Exact K-best: keep K paths per state and transition-relevant metadata.\n"
+        << "  [--verify-exact] With --metadata-states, replay every path with raw metadata and check its score.\n"
         << "  [--raw] Write every gene of every decoded path, with no overlap filter or deduplication.\n"
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
         << "  [--score-models FILE] Score supplied CDS models instead of K-best decoding;\n"
@@ -35,6 +38,8 @@ int main(int argc, char **argv) {
             const string name = argv[arg];
             if (name == "--raw") { options.raw = true; continue; }
             if (name == "--uniann-gff") { options.uniann_gff = true; continue; }
+            if (name == "--metadata-states") { options.metadata_states = true; continue; }
+            if (name == "--verify-exact") { options.verify_exact = true; continue; }
             if (arg + 1 >= argc) throw runtime_error("Missing value for " + name);
             const string value = argv[++arg];
             if (name == "--output") options.output_filename = value;
@@ -44,6 +49,7 @@ int main(int argc, char **argv) {
             else if (name == "--force-junctions") options.junctions_filename = value;
             else if (name == "--k") options.k = integer_option(value, name);
             else if (name == "--flank") options.flank = integer_option(value, name);
+            else if (name == "--spill-dir") options.spill_dir = value;
             else if (name == "--threads") options.threads = value == "auto" ? 0 : integer_option(value, name);
             else if (name == "--traceback-memory") {
                 const int megabytes = integer_option(value, name);

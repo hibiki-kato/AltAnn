@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <atomic>
 #include <future>
+#include <chrono>
 
 // Local decoding retains K paths per coarse state. Search, annotation ranking,
 // and per-locus output are separate steps; the public runner only orchestrates
@@ -52,24 +53,11 @@ struct CompactBP {
     int16_t bt_k;
 };
 
-struct LocusOutput { string gff, reference, report, error; };
-
-// Traceback memory shared by the loci decoding at the same time. Reserving never
-// waits: a locus that does not fit spills instead, so decoding order and the
-// number of threads cannot change results or deadlock.
-class TracebackBudget {
-public:
-    explicit TracebackBudget(size_t bytes) : available_(bytes) {}
-    bool try_reserve(size_t bytes) {
-        size_t available = available_.load();
-        while (available >= bytes)
-            if (available_.compare_exchange_weak(available, available - bytes)) return true;
-        return false;
-    }
-    void release(size_t bytes) { available_ += bytes; }
-    size_t available() const { return available_.load(); }
-private:
-    atomic<size_t> available_;
+struct LocusOutput {
+    string gff, reference, report, error;
+    ExactSearchStats exact;
+    double search_seconds = 0;
+    int window_length = 0;
 };
 
 // Backpointer rows are written forward and read backward. A traceback that does
@@ -212,8 +200,7 @@ vector<LocalPathResult> search_paths_impl(
     vector<vector<ActiveCell>> prev_dp(NUM_STATES, vector<ActiveCell>(K));
     vector<vector<ActiveCell>> curr_dp(NUM_STATES, vector<ActiveCell>(K));
     const size_t cells_per_position = static_cast<size_t>(NUM_STATES) * K;
-    BackpointerStore backpointers(local_len, cells_per_position, budget,
-                                  filesystem::path(options.output_filename).parent_path().string());
+    BackpointerStore backpointers(local_len, cells_per_position, budget, spill_directory(options));
 
     prev_dp[0][0].dp = 0.0 + inputs.emit[L_bound][0];
     prev_dp[0][0].metadata = initial_metadata;
@@ -470,7 +457,12 @@ LocusOutput decode_locus(
         write_hierarchical_transcript(reference_out, reference, gene, gene + ".t1");
     }
 
-    const auto paths = search_paths_impl(L_bound, R_bound, initial_metadata, inputs, options, budget);
+    ExactSearchStats exact_stats;
+    const auto search_begin = chrono::steady_clock::now();
+    const auto paths = options.metadata_states
+        ? search_paths_exact(L_bound, R_bound, initial_metadata, inputs, options, budget, &exact_stats)
+        : search_paths_impl(L_bound, R_bound, initial_metadata, inputs, options, budget);
+    const double search_seconds = chrono::duration<double>(chrono::steady_clock::now() - search_begin).count();
 
     const auto unique_candidates = rank_annotations(paths, ref, seqid, ref_fixed_score, options.k, options.raw);
 
@@ -515,7 +507,14 @@ LocusOutput decode_locus(
                 << cand.splice_jaccard << '\n';
     }
 
-    return {gff_out.str(), reference_out.str(), tsv_out.str(), {}};
+    LocusOutput output;
+    output.gff = gff_out.str();
+    output.reference = reference_out.str();
+    output.report = tsv_out.str();
+    output.exact = exact_stats;
+    output.search_seconds = search_seconds;
+    output.window_length = R_bound - L_bound + 1;
+    return output;
 }
 } // namespace
 
@@ -566,12 +565,34 @@ bool run_local_k_best(
         catch (...) { outputs[ref_idx].error = "Unknown decoder error"; }
     }
     // Exceptions cannot cross an OpenMP boundary. Report them on the caller.
+    ExactSearchStats total;
+    double search_seconds = 0, max_search_seconds = 0;
+    size_t max_trace = 0, positions = 0;
+    int longest_window = 0;
     for (const auto &result : outputs) {
         if (!result.error.empty()) throw runtime_error(result.error);
+        total.entries += result.exact.entries;
+        total.max_entries_row = max(total.max_entries_row, result.exact.max_entries_row);
+        total.max_slots_row = max(total.max_slots_row, result.exact.max_slots_row);
+        total.spilled_bytes += result.exact.spilled_bytes;
+        max_trace = max(max_trace, result.exact.trace_bytes);
+        search_seconds += result.search_seconds;
+        max_search_seconds = max(max_search_seconds, result.search_seconds);
+        positions += result.window_length;
+        longest_window = max(longest_window, result.window_length);
         gff_out << result.gff;
         reference_out << result.reference;
         tsv_out << result.report;
     }
+    cerr << setprecision(6) << "search_stats\tloci=" << references.size()
+         << "\twindow_bases=" << positions << "\tlongest_window=" << longest_window
+         << "\tsum_search_seconds=" << search_seconds << "\tmax_locus_seconds=" << max_search_seconds;
+    if (options.metadata_states)
+        cerr << "\tmean_entries_per_base=" << (positions ? double(total.entries) / positions : 0.0)
+             << "\tmax_entries_row=" << total.max_entries_row << "\tmax_keys_row=" << total.max_slots_row
+             << "\tmax_trace_MiB=" << max_trace / 1048576.0
+             << "\tspilled_trace_MiB=" << total.spilled_bytes / 1048576.0;
+    cerr << '\n';
     write_output_bundle({{options.output_filename, gff_out.str()},
                          {options.output_filename + ".reference.gff", reference_out.str()},
                          {options.report_filename, tsv_out.str()}});

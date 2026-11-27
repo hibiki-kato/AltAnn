@@ -28,7 +28,7 @@ endif()
 
 add_executable(altann-core
     src/main.cpp src/loaders.cpp src/model.cpp src/global.cpp
-    src/local.cpp src/output.cpp src/output_files.cpp src/score.cpp)
+    src/local.cpp src/exact.cpp src/output.cpp src/output_files.cpp src/score.cpp)
 target_link_libraries(altann-core PRIVATE OpenMP::OpenMP_CXX)
 target_compile_options(altann-core PRIVATE -Wall -Wextra)
 # Preserve the runtime search path for a user-installed OpenMP library.
@@ -52,12 +52,12 @@ include(CTest)
 if(BUILD_TESTING)
     find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
     add_executable(test-orf-overlap
-        tests/test_orf_overlap.cpp src/loaders.cpp src/model.cpp src/output.cpp src/output_files.cpp)
+        tests/test_orf_overlap.cpp src/loaders.cpp src/model.cpp src/exact.cpp src/output.cpp src/output_files.cpp)
     target_link_libraries(test-orf-overlap PRIVATE OpenMP::OpenMP_CXX)
     target_compile_options(test-orf-overlap PRIVATE -Wall -Wextra)
     add_test(NAME orf-overlap COMMAND test-orf-overlap)
     add_executable(test-score-models
-        tests/test_score_models.cpp src/loaders.cpp src/model.cpp src/local.cpp src/output.cpp src/output_files.cpp)
+        tests/test_score_models.cpp src/loaders.cpp src/model.cpp src/local.cpp src/exact.cpp src/output.cpp src/output_files.cpp)
     target_link_libraries(test-score-models PRIVATE OpenMP::OpenMP_CXX)
     target_compile_options(test-score-models PRIVATE -Wall -Wextra)
     add_test(NAME score-models COMMAND test-score-models)
