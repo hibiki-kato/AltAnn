@@ -24,6 +24,13 @@ void usage(ostream &out) {
         << "    UniAnn CDS exon count to choose local K; --k is the hard cap.\n"
         << "  [--verify-exact] With --metadata-states, replay every path with raw metadata and check its score.\n"
         << "  [--raw] Write every gene of every decoded path, with no overlap filter or deduplication.\n"
+        << "  [--flank-cds-cap] Each locus's flank is min(--flank, its reference's CDS bases).\n"
+        << "  [--flank-junctions FILE] Widen each side's flank to reach RNA introns leaving the\n"
+        << "    reference: FILE rows are START END (zero-based half-open [GT, AG + 2)); a side grows to\n"
+        << "    the farthest outside end of an intron with its other end inside the reference span,\n"
+        << "    plus --flank-junction-pad (1000), at most --flank-junction-cap (50000).\n"
+        << "    An optional third column gives read counts; --flank-junction-min-fraction F keeps an\n"
+        << "    intron only with reads >= F x the median of the reference's own CDS introns (or of the file).\n"
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
         << "  [--score-models FILE] Score supplied CDS models instead of K-best decoding;\n"
         << "    FILE rows are ID<TAB>start-end,... (zero-based half-open); --report is unused.\n"
@@ -41,6 +48,7 @@ int main(int argc, char **argv) {
         for (int arg = 7; arg < argc; ++arg) {
             const string name = argv[arg];
             if (name == "--raw") { options.raw = true; continue; }
+            if (name == "--flank-cds-cap") { options.flank_cds_cap = true; continue; }
             if (name == "--uniann-gff") { options.uniann_gff = true; continue; }
             if (name == "--metadata-states") { options.metadata_states = true; continue; }
             if (name == "--exact-baseline") { options.exact_baseline = true; continue; }
@@ -55,6 +63,15 @@ int main(int argc, char **argv) {
             else if (name == "--k") options.k = integer_option(value, name);
             else if (name == "--adaptive-k") options.adaptive_k_spec = value;
             else if (name == "--flank") options.flank = integer_option(value, name);
+            else if (name == "--flank-junctions") options.flank_junctions_filename = value;
+            else if (name == "--flank-junction-pad") options.flank_junction_pad = integer_option(value, name);
+            else if (name == "--flank-junction-cap") options.flank_junction_cap = integer_option(value, name);
+            else if (name == "--flank-junction-min-fraction") {
+                size_t used = 0;
+                options.flank_junction_min_fraction = stod(value, &used);
+                if (used != value.size() || !(options.flank_junction_min_fraction >= 0))
+                    throw runtime_error("Invalid --flank-junction-min-fraction: " + value);
+            }
             else if (name == "--spill-dir") options.spill_dir = value;
             else if (name == "--threads") options.threads = value == "auto" ? 0 : integer_option(value, name);
             else if (name == "--traceback-memory") {
@@ -67,6 +84,13 @@ int main(int argc, char **argv) {
         if (options.k < 1 || options.k > 32767) throw runtime_error("K must be between 1 and 32767");
         if (options.flank < -1 || options.flank > numeric_limits<int>::max() / 2)
             throw runtime_error("Flank must be -1 or a nonnegative supported distance");
+        if (options.flank_cds_cap && options.flank < 0)
+            throw runtime_error("--flank-cds-cap needs a nonnegative --flank");
+        if (!options.flank_junctions_filename.empty() && options.flank < 0)
+            throw runtime_error("--flank-junctions needs a nonnegative --flank");
+        if (options.flank_junction_pad < 0 || options.flank_junction_cap < 0 ||
+            options.flank_junction_cap > numeric_limits<int>::max() / 2)
+            throw runtime_error("Flank junction pad and cap must be nonnegative supported distances");
         if (options.threads < 0) throw runtime_error("Threads must be nonnegative");
         const bool forcing = !options.junctions_filename.empty();
         if (forcing && !options.models_filename.empty())
@@ -93,6 +117,7 @@ int main(int argc, char **argv) {
         if (!options.viterbi_log_filename.empty())
             input_paths.push_back(options.viterbi_log_filename);
         if (scoring) input_paths.push_back(forcing ? options.junctions_filename : options.models_filename);
+        if (!options.flank_junctions_filename.empty()) input_paths.push_back(options.flank_junctions_filename);
         vector<string> outputs;
         if (!options.uniann_gff) outputs.push_back(options.output_filename);
         if (!scoring && !options.uniann_gff) {
@@ -120,6 +145,12 @@ int main(int argc, char **argv) {
             : options.viterbi_log_filename.empty()
             ? decode_baseline(source)
             : load_baseline_log(source, options.viterbi_log_filename);
+        if (!options.flank_junctions_filename.empty()) {
+            options.flank_junctions = make_shared<const FlankJunctions>(
+                read_flank_junctions(options.flank_junctions_filename, source.length()));
+            if (options.flank_junction_min_fraction > 0 && options.flank_junctions->reads_by_start.empty())
+                throw runtime_error("--flank-junction-min-fraction needs read counts in the junction file");
+        }
         if (options.uniann_gff) {
             write_uniann_gff(cout, baseline.states, fasta.id, argv[1]);
             cerr << baseline.states.size() - 1 << "\tdp";

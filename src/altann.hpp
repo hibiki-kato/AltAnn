@@ -14,6 +14,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -185,11 +186,33 @@ struct TransitionResult {
     PathMetadata next_metadata;
 };
 
+// RNA introns that may widen a locus's flank: zero-based half-open [GT, AG + 2)
+// in input coordinates, sorted by start and by end.
+struct FlankJunctions {
+    vector<pair<int, int>> by_start, by_end;
+    // Optional read counts (third column), keyed like by_start; empty without counts.
+    vector<double> reads_by_start;
+    double median_reads = 0;
+    double reads(int start, int end) const;  // -1 when the intron is absent
+};
+FlankJunctions read_flank_junctions(const string &path, int sequence_length);
+
 struct Options {
     int k = 10;
     // Optional E-only rule; k remains the hard cap used by the exporter.
     string adaptive_k_spec;
     int flank = 1000;
+    // Cap each locus's flank at its reference's coding length (sum of CDS bases).
+    bool flank_cds_cap = false;
+    // A side's flank grows to the far end of the farthest junction leaving the
+    // reference from inside its span, plus pad, at most cap.
+    string flank_junctions_filename;
+    shared_ptr<const FlankJunctions> flank_junctions;
+    int flank_junction_pad = 1000;
+    // Keep an intron only if its reads reach this fraction of the median reads of
+    // the reference's own CDS introns (the file's median when none is present).
+    double flank_junction_min_fraction = 0;
+    int flank_junction_cap = 50000;
     int threads = 0;
     string output_filename;
     string report_filename;
