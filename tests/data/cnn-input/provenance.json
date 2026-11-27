@@ -1,0 +1,25 @@
+{
+  "upstream_commit": "f126cc82d7a1fb239467b054eeb1e0da07d07190",
+  "upstream_sha256": {
+    "scripts/uniann.sh": "5fec0fede1c65e82bcee943bd7b9c9c86d5e3308fe245d1de0dba1796bd5b095",
+    "scripts/convert_coding_frame.pl": "a13a76895118b1a7e124381f2bc8b2d903eda2cfa7d4938287153edf36c748b0",
+    "src/uniann.cpp": "8c288dcd816e7571c09eea2f0e88bfe4174d5e4360196322da3423294d66966e"
+  },
+  "staging": "header removed; frame columns rotated (1, 2, 0) as ChimAnn does for (n-i-1)%3",
+  "wrapper_arguments": [
+    "-f",
+    "sequence.fna",
+    "-c",
+    "coding.tsv",
+    "-s",
+    "sites.tsv",
+    "-n"
+  ],
+  "expected_outputs": {
+    "out.ps.txt": "56624c074c973be4ccdb3f894c93a71584a2eed01d4d4a1fb60932e2d462a145",
+    "out.gt.txt": "64791e61ca865a53fdfc2c61efbb1a2d59743f5a47b086f0dc5bd1102685f92f",
+    "out.ag.txt": "087ab5b2d460777097591fa8ccce0b96c82dddcda83ffad2b60ec2dcca0435bf",
+    "out.atg.txt": "3c9bfb27b9f40447605227c5d669fc1eb1dde751c6ff46b591391fd102d7202c",
+    "out.stop.txt": "cec7d9f34f737b1501395235d89efe5e7b310df8f1e610b54c1cf4e7a08148c4"
+  }
+}

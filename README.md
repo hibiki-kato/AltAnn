@@ -148,6 +148,28 @@ is also present. Raw PSAURON preprocessing remains available through explicit
 [coding-frame score contract](docs/format.md#current-coding-frame-conversion)
 for upstream calibration and coordinate details.
 
+### Prepare inputs without UniAnn
+
+`altann prepare` writes `sequence.fna`, `out.ps.txt` and, with `--scores`, the
+four site tables for one oriented sequence, straight from calibrated cnn-mamba
+probabilities. It applies no further temperature. UniAnn `08eaf15` maps each
+class through `sigmoid(logit(p)/3)` again, which undoes the model's vector or
+temperature calibration. The emissions match UniAnn `f126cc8`
+`convert_coding_frame.pl`, the last upstream converter without a temperature,
+after ChimAnn's column staging. The site tables match the `uniann.sh` site step,
+except that rows naming another sequence are skipped, not scored.
+
+```sh
+bin/altann prepare --fasta plus/sequence.fna --coding-frame plus/coding.tsv \
+  --scores plus/sites.tsv --output plus-inputs
+bin/altann decode --input plus-inputs --rerun-viterbi --output alternatives.gff3
+```
+
+The coding table needs one `+`-labelled row per base with contiguous 1-based
+positions and the FASTA identifier in its first column; the header is optional.
+`prepare.json` records the inputs, multiplier and site factor.
+`tests/data/cnn-input/` holds the upstream `f126cc8` oracle outputs.
+
 ## Legacy PSAURON inputs on both strands
 
 Supply the original FASTA, a six-frame PSAURON CSV generated with PSAURON
