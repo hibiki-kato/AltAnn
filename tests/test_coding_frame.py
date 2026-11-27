@@ -24,7 +24,7 @@ def float32(value):
 
 def native_path():
     scores, predecessors = [], []
-    for line in (DATA / "uniann.trace").read_text().splitlines():
+    for line in (DATA / "uniann.spliced.trace").read_text().splitlines():
         fields = line.split("\t")
         (scores if fields[1] == "dp" else predecessors).append(list(map(int, fields[2:])))
     state = max(range(7), key=lambda index: scores[-1][index])
@@ -51,7 +51,7 @@ class CodingFrameTests(unittest.TestCase):
         command = [sys.executable, "-m", "altann", "decode", "--input", str(DATA),
                    "--core", str(CORE), "--k", "8", "--flank", "50", "--threads", "2",
                    "--output", str(output)]
-        command += (["--gff", str(DATA / gff), "--log", str(DATA / "uniann.trace")]
+        command += (["--gff", str(DATA / gff), "--log", str(DATA / "uniann.spliced.trace")]
                     if saved else ["--rerun-viterbi"])
         if reverse:
             command += ["--reverse"]
@@ -63,7 +63,7 @@ class CodingFrameTests(unittest.TestCase):
         converted = [line.split("\t") for line in (DATA / "out.ps.txt").read_text().splitlines()]
         self.assertEqual(len(raw), len(self.sequence))
         self.assertEqual(len(converted), len(self.sequence))
-        self.assertEqual(len((DATA / "uniann.trace").read_text().splitlines()), 2 * len(self.sequence))
+        self.assertEqual(len((DATA / "uniann.spliced.trace").read_text().splitlines()), 2 * len(self.sequence))
         self.assertEqual({g["start0"] % 3 for g in self.provenance["genes"]}, {0, 1, 2})
         self.assertEqual({g["intron_length"] % 3 for g in self.provenance["genes"]}, {0, 1, 2})
         for position, fields in enumerate(converted):

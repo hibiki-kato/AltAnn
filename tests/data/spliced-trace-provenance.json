@@ -1,0 +1,24 @@
+{
+  "description": "Native UniAnn traces with spliced-codon decoder; pre-existing traces and provenance retained.",
+  "uniann_source": "dev/UniAnn/src/uniann.cpp",
+  "uniann_source_sha256": "92a892e2ca573a3c76cb95fdc95f5b9747a1e9a4b57db7e56aa57d2d111309c9",
+  "build_command": "c++ -std=c++17 -O2 dev/UniAnn/src/uniann.cpp -o /tmp/uniann-spliced-test",
+  "native_command": "/tmp/uniann-spliced-test FASTA EMISSIONS GT AG ATG STOP",
+  "original_fixture_inputs": "Generated in /tmp by tests/fixtures.py write_fixture; input order via ordered_inputs.",
+  "other_fixture_inputs": [
+    "sequence.fna",
+    "out.ps.txt",
+    "out.gt.txt",
+    "out.ag.txt",
+    "out.atg.txt",
+    "out.stop.txt"
+  ],
+  "trace_selection": "stderr rows with nine tab-separated fields and second field dp or bt, original order and final newline",
+  "comparison": "Native GFF feature types and coordinates match AltAnn --uniann-gff and original native GFF for all four fixtures.",
+  "traces": {
+    "uniann-fixture.spliced.trace": "c5709cab124725ba73f11c97e414f22073b05822edf52ca3e1621f9ed6514acb",
+    "bowen-contract/uniann.spliced.trace": "9be9909d2e761a9d2c9d72df49081be802b0e537e41f742edf79056d04e206f1",
+    "bowen-corrected/uniann.spliced.trace": "a5c9c7a393bd91f598bb888e9a018175efae2a4cca3d1094bc1acf4100e5f39a",
+    "coding-frame/uniann.spliced.trace": "1e8b1e2b7bb8c6299196aa01244031d04178ffd0e502546a62be847d78981025"
+  }
+}

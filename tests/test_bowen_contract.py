@@ -23,7 +23,7 @@ CORE = Path(os.environ.get("ALTANN_CORE", ROOT / "build/altann-core")).resolve()
 
 def native_path(data=DATA):
     scores, predecessors = [], []
-    for line in (data / "uniann.trace").read_text().splitlines():
+    for line in (data / "uniann.spliced.trace").read_text().splitlines():
         fields = line.split("\t")
         (scores if fields[1] == "dp" else predecessors).append(list(map(int, fields[2:])))
     state = max(range(7), key=lambda index: scores[-1][index])
@@ -119,7 +119,7 @@ class BowenProcessedScoreTests(unittest.TestCase):
         output = self.work / (name + ".gff3")
         command = [sys.executable, "-m", "altann", "decode", "--core", str(CORE),
                    "--input", str(self.data), "--k", "8", "--flank", "50", "--output", str(output)]
-        command += (["--gff", str(self.data / "uniann.gff3"), "--log", str(self.data / "uniann.trace")]
+        command += (["--gff", str(self.data / "uniann.gff3"), "--log", str(self.data / "uniann.spliced.trace")]
                     if saved else ["--rerun-viterbi"])
         if reverse:
             command += ["--reverse"]

@@ -42,6 +42,11 @@ struct PathMetadata {
     // The predecessor of the cell carrying this metadata.  The legacy start
     // rule checks this value to ensure the intergenic run itself came from N.
     int predecessor_state = -1;
+    // Spliced coding sequence through position-2, excluding donor/acceptor
+    // motifs. Delay by two bases because DP switches follow motif starts.
+    array<char, 2> coding_suffix{};
+    int coding_suffix_length = 0;
+    bool coding_started = false;
 };
 
 struct GenomicInterval {
