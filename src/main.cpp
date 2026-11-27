@@ -20,6 +20,8 @@ void usage(ostream &out) {
         << "  [--metadata-states] Exact K-best: keep K paths per state and transition-relevant metadata.\n"
         << "  [--exact-baseline] Take the global best path from exact K=1 metadata-state search\n"
         << "    over the whole sequence instead of the UniAnn decoder; the path ends in N.\n"
+        << "  [--adaptive-k linear,BASE,SLOPE | shifted-exp,BASE,SCALE,RATE] Use the global\n"
+        << "    UniAnn CDS exon count to choose local K; --k is the hard cap.\n"
         << "  [--verify-exact] With --metadata-states, replay every path with raw metadata and check its score.\n"
         << "  [--raw] Write every gene of every decoded path, with no overlap filter or deduplication.\n"
         << "  [--viterbi-log FILE] Read the saved UniAnn dp/bt baseline instead of rerunning it.\n"
@@ -51,6 +53,7 @@ int main(int argc, char **argv) {
             else if (name == "--score-models") options.models_filename = value;
             else if (name == "--force-junctions") options.junctions_filename = value;
             else if (name == "--k") options.k = integer_option(value, name);
+            else if (name == "--adaptive-k") options.adaptive_k_spec = value;
             else if (name == "--flank") options.flank = integer_option(value, name);
             else if (name == "--spill-dir") options.spill_dir = value;
             else if (name == "--threads") options.threads = value == "auto" ? 0 : integer_option(value, name);
@@ -69,6 +72,9 @@ int main(int argc, char **argv) {
         if (forcing && !options.models_filename.empty())
             throw runtime_error("--force-junctions cannot be combined with --score-models");
         const bool scoring = forcing || !options.models_filename.empty();
+        parse_adaptive_k_rule(options.adaptive_k_spec, options.k);
+        if (!options.adaptive_k_spec.empty() && (scoring || options.uniann_gff))
+            throw runtime_error("--adaptive-k applies only to local K-best decoding");
         if (options.uniann_gff && (scoring || options.raw || !options.output_filename.empty() ||
                                    !options.report_filename.empty()))
             throw runtime_error("--uniann-gff writes only to standard output and takes no other mode or output");

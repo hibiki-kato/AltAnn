@@ -20,6 +20,7 @@ import time
 
 from . import __version__
 from .convert import SEGMENT, convert
+from .policy import load_adaptive_k_policy
 
 ROOT = Path(__file__).resolve().parent.parent
 FILE_KEYS = ('fasta', 'psauron', 'scores', 'emissions', 'gt', 'ag', 'atg', 'stop', 'log', 'best_gff')
@@ -46,7 +47,8 @@ def parser():
     d.add_argument('-m', '--mult', type=float, default=2.71828182845905,
                    help='Site probability multiplier before logarithmic scaling, between 1 and 100 (default: exp(1)).')
     d.add_argument('-a', '--all-prob', dest='both_strands', action='store_true', help='Decode both strands from the original FASTA and strand-tagged processed UniAnn scores, or legacy six-frame PSAURON/site probabilities selected with --psauron or --scores; recompute both reference paths.')
-    d.add_argument('--k', type=int, default=10, help='Retained paths per state (default: 10).')
+    d.add_argument('--k', type=int, default=None, help='Retained paths per state (default: 10).')
+    d.add_argument('--adaptive-k-policy', type=Path, help='Opt-in adaptive K policy JSON; --k, if supplied, must match its cap.')
     d.add_argument('--short-cds-filter', action='store_true', help='Exclude models with <=2 exons and <=200 coding bases.')
     d.add_argument('--metadata-states', action='store_true', help='Exact K-best: keep K paths per state and transition-relevant metadata (lengths, exon origin, spliced codon).')
     d.add_argument('--verify-exact', action='store_true', help=argparse.SUPPRESS)
@@ -213,6 +215,16 @@ def find_core(args):
 
 
 def decode(args):
+    adaptive_policy = None
+    adaptive_spec = None
+    if getattr(args, 'adaptive_k_policy', None) is not None:
+        policy_path = args.adaptive_k_policy.resolve()
+        adaptive_policy, adaptive_spec = load_adaptive_k_policy(policy_path)
+        if args.k is not None and args.k != adaptive_policy['cap']:
+            raise ValueError('--k must equal the adaptive K policy cap')
+        args.k = adaptive_policy['cap']
+    elif args.k is None:
+        args.k = 10
     started = time.monotonic()
     if not 1 <= args.k <= 32767 or args.flank < 0 or args.segment_overlap < 0 or args.segment_margin < 0:
         raise ValueError('K must be between 1 and 32767; flank and segment settings must be nonnegative')
@@ -232,6 +244,8 @@ def decode(args):
     output = args.output.resolve()
     targets = [output, Path(str(output)+'.tsv'), Path(str(output)+'.json')]
     inputs = {Path(v).resolve() for k, v in job.items() if k in FILE_KEYS and v}
+    if adaptive_policy is not None:
+        inputs.add(policy_path)
     if any(t in inputs or (t.exists() and any(t.samefile(p) for p in inputs)) for t in targets):
         raise ValueError('Output paths must not overwrite input files')
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -239,6 +253,8 @@ def decode(args):
                     reverse=args.reverse, both_strands=args.both_strands, raw=args.raw,
                     reference_mode='exact' if getattr(args, 'exact_baseline', False) else
                     'rerun' if args.rerun_viterbi or args.both_strands or job['psauron'] else 'traceback', jobs=[])
+    if adaptive_policy is not None:
+        metadata['adaptive_k_policy'] = {'source_path': str(policy_path), 'policy': adaptive_policy}
     with tempfile.TemporaryDirectory(prefix='.altann-', dir=output.parent) as temp:
         temp = Path(temp)
         if job['psauron']:
@@ -260,7 +276,8 @@ def decode(args):
                                    'candidate_end_1based\tfixed_interval_score\treference_fixed_interval_score\t'
                                    'score_delta\tactual_start_score\tintron_chain\treference_intron_chain\t'
                                    'identical_to_reference\tclassification\twindow_start_1based\t'
-                                   'window_end_1based\tinitial_inter_len\tsplice_site_jaccard\n')
+                                   'window_end_1based\tinitial_inter_len\tsplice_site_jaccard' +
+                                   ('\tsearch_k' if adaptive_spec is not None else '') + '\n')
         for index, job in enumerate(jobs):
             begin = time.monotonic()
             coords, segment = coordinates(job)
@@ -271,6 +288,8 @@ def decode(args):
             report = raw.with_suffix('.tsv')
             command = [core, job['fasta'], *(scores[key] for key in ('emissions','gt','ag','atg','stop')),
                        '--k', args.k, '--flank', args.flank, '--threads', threads, '--output', raw, '--report', report]
+            if adaptive_spec is not None:
+                command.extend(['--adaptive-k', adaptive_spec])
             if job['log']:
                 command.extend(['--viterbi-log', job['log']])
             command.extend(['--traceback-memory', args.traceback_memory])

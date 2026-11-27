@@ -72,6 +72,39 @@ artifacts. After the tested version is merged into main, CI automatically tags
 and publishes a new version as a GitHub Release. Existing versions are not
 overwritten; see [maintenance](docs/maintenance.md).
 
+## Opt-in adaptive K
+
+The source implementation can choose K separately for each local locus from
+the global UniAnn CDS exon count E. Supply `--adaptive-k-policy policy.json`:
+
+```json
+{
+  "schema": "dna-adaptive-k-v1",
+  "family": "shifted_exponential",
+  "base": 5,
+  "scale": 20,
+  "rate": 0.1,
+  "cap": 40
+}
+```
+
+This example uses `min(cap, ceil(base + scale * expm1(rate * (E - 1))))`.
+A linear policy uses `"family": "linear"`, `"base"`, `"slope"`, and `"cap"`.
+These are configurable examples, not species-independent defaults. The policy
+is applied inside the native local search; it needs no reference annotation.
+
+```sh
+bin/altann decode --input /path/to/uniann-job --rerun-viterbi \
+  --metadata-states --adaptive-k-policy policy.json --threads auto \
+  --core /path/to/new/build/altann-core --output alternatives.gff3
+```
+
+The policy supplies the hard K cap. If `--k` is also given, it must equal that
+cap. Per-candidate TSV rows include `search_k`, and the JSON sidecar records the
+policy and its source path. Without a policy, fixed K still defaults to 10 and
+the ordinary output format is unchanged. Rebuild the source core before using
+this option with an older installed binary.
+
 ## Current UniAnn coding-frame inputs
 
 UniAnn upstream `6fe3d46` replaces PSAURON preprocessing with
