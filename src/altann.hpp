@@ -1,9 +1,10 @@
 // Adapted from UniAnn by Aleksey Zimin and contributors. See THIRD_PARTY.md.
 #pragma once
-// AltAnn's compatibility model uses seven coarse states. Metadata belongs to
-// each retained path and does not create additional states.
+// The compatibility decoder uses seven coarse states and path metadata.
+// Exact local decoding additionally keys states by transition-relevant metadata.
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <cctype>
 #include <cmath>
@@ -195,9 +196,16 @@ struct Options {
     string junctions_filename;
     bool raw = false;
     bool uniann_gff = false;
+    // Exact K-best: keep K paths per (coarse state, transition-relevant metadata).
+    bool metadata_states = false;
+    // Global best path by exact K=1 metadata-state search instead of UniAnn's decoder.
+    bool exact_baseline = false;
+    // Replay each exact path with raw metadata and check its score.
+    bool verify_exact = false;
     // Shared by all concurrent loci; tracebacks that do not fit spill to a
     // temporary file beside the output.
     size_t traceback_memory_bytes = size_t(1024) * 1024 * 1024;
+    string spill_dir;
 };
 struct Fasta { string id; vector<char> sequence; };
 // Run-length encoded state path over a whole sequence.
@@ -263,6 +271,7 @@ int splice_motif_start_0based(int);
 int codon_start_0based(int);
 TransitionResult evaluate_transition(int, int, int, const PathMetadata &, const ModelInputs &);
 Baseline decode_baseline(const ScoreSource &);
+Baseline decode_baseline_exact(const ScoreSource &, const Options &);
 Baseline load_baseline_log(const ScoreSource &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const vector<int> &, const vector<int> &, const string &);
 vector<TranscriptAnnotation> build_transcript_annotations(const StatePath &, const string &);
@@ -278,6 +287,38 @@ void run_junction_forcing(const string &, const vector<TranscriptAnnotation> &, 
 // allowed_states, when given, holds one state bitmask per window position.
 vector<LocalPathResult> search_paths(int, int, const PathMetadata &, const ModelInputs &, const Options &,
                                    const vector<uint8_t> *allowed_states = nullptr);
+// Traceback memory shared by the loci decoding at the same time. Reserving never
+// waits: a locus that does not fit spills instead, so decoding order and the
+// number of threads cannot change results or deadlock.
+class TracebackBudget {
+public:
+    explicit TracebackBudget(size_t bytes) : available_(bytes) {}
+    bool try_reserve(size_t bytes) {
+        size_t available = available_.load();
+        while (available >= bytes)
+            if (available_.compare_exchange_weak(available, available - bytes)) return true;
+        return false;
+    }
+    void release(size_t bytes) { available_ += bytes; }
+    size_t available() const { return available_.load(); }
+private:
+    atomic<size_t> available_;
+};
+
+// Traceback spill files go here: --spill-dir, else the output's directory.
+string spill_directory(const Options &);
+
+struct ExactSearchStats {
+    size_t positions = 0;
+    size_t entries = 0;          // retained partial paths summed over positions
+    size_t max_entries_row = 0;
+    size_t max_slots_row = 0;
+    size_t trace_bytes = 0;      // traceback bytes of the last window searched
+    size_t spilled_bytes = 0;    // traceback bytes written to a temporary file
+};
+vector<LocalPathResult> search_paths_exact(int, int, const PathMetadata &, const ModelInputs &,
+                                           const Options &, TracebackBudget &,
+                                           ExactSearchStats *stats = nullptr);
 bool run_local_k_best(const string &, const vector<TranscriptAnnotation> &, const Baseline &, const ScoreSource &, const Options &);
 
 // Stage the complete output bundle; preserve prior files if publication fails.

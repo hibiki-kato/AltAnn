@@ -48,6 +48,10 @@ def parser():
     d.add_argument('-a', '--all-prob', dest='both_strands', action='store_true', help='Decode both strands from the original FASTA and strand-tagged processed UniAnn scores, or legacy six-frame PSAURON/site probabilities selected with --psauron or --scores; recompute both reference paths.')
     d.add_argument('--k', type=int, default=10, help='Retained paths per state (default: 10).')
     d.add_argument('--short-cds-filter', action='store_true', help='Exclude models with <=2 exons and <=200 coding bases.')
+    d.add_argument('--metadata-states', action='store_true', help='Exact K-best: keep K paths per state and transition-relevant metadata (lengths, exon origin, spliced codon).')
+    d.add_argument('--verify-exact', action='store_true', help=argparse.SUPPRESS)
+    d.add_argument('--exact-baseline', action='store_true', help='Take the reference (rank 0) path from exact K=1 metadata-state search instead of the UniAnn decoder; no UniAnn GFF or DP/BT log is read.')
+    d.add_argument('--spill-dir', type=Path, help='Directory for traceback spill files (default: beside the output).')
     d.add_argument('--raw', action='store_true', help='Export every gene of every decoded path, without the CDS-overlap filter or deduplication; rank is the decoder path index.')
     d.add_argument('--traceback-memory', type=int, default=1024, metavar='MB', help='Traceback memory shared by concurrent loci; tracebacks that do not fit spill to a temporary file beside the output (default: 1024).')
     d.add_argument('--segment-overlap', type=int, default=4_000_000)
@@ -216,8 +220,14 @@ def decode(args):
         raise ValueError('--traceback-memory must be nonnegative')
     if args.raw and args.short_cds_filter:
         raise ValueError('--raw cannot be combined with --short-cds-filter')
+    if getattr(args, 'exact_baseline', False):
+        if args.log:
+            raise ValueError('--log cannot be combined with --exact-baseline')
+        args.rerun_viterbi = True
     threads = thread_count(args)
-    job = job_from_args(args)
+    job = job_from_args(args, require_best=not getattr(args, 'exact_baseline', False))
+    if getattr(args, 'exact_baseline', False):
+        job['best_gff'] = None
     core = find_core(args)
     output = args.output.resolve()
     targets = [output, Path(str(output)+'.tsv'), Path(str(output)+'.json')]
@@ -227,7 +237,8 @@ def decode(args):
     output.parent.mkdir(parents=True, exist_ok=True)
     metadata = dict(version=__version__, command=sys.argv, threads=threads,
                     reverse=args.reverse, both_strands=args.both_strands, raw=args.raw,
-                    reference_mode='rerun' if args.rerun_viterbi or args.both_strands or job['psauron'] else 'traceback', jobs=[])
+                    reference_mode='exact' if getattr(args, 'exact_baseline', False) else
+                    'rerun' if args.rerun_viterbi or args.both_strands or job['psauron'] else 'traceback', jobs=[])
     with tempfile.TemporaryDirectory(prefix='.altann-', dir=output.parent) as temp:
         temp = Path(temp)
         if job['psauron']:
@@ -265,7 +276,20 @@ def decode(args):
             command.extend(['--traceback-memory', args.traceback_memory])
             if args.raw:
                 command.append('--raw')
+            if args.metadata_states:
+                command.append('--metadata-states')
+            if args.verify_exact:
+                command.append('--verify-exact')
+            if getattr(args, 'exact_baseline', False):
+                command.append('--exact-baseline')
+            if getattr(args, 'spill_dir', None):
+                command.extend(['--spill-dir', args.spill_dir.resolve()])
             run_process(command, work/'decoder.log', work)
+            # Surface the decoder's search summary (time, retained paths).
+            with (work/'decoder.log').open() as handle:
+                for line in handle:
+                    if line.startswith('search_stats'):
+                        print(f'{segment}\t{job["strand"]}\t{line.rstrip()}', file=sys.stderr)
             converted = work/'converted.gff3'
             stats = convert(raw, segment, job['strand'], converted, work/'stats.json', **coords,
                             k=args.k, short_cds_filter=args.short_cds_filter,
