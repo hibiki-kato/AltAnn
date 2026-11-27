@@ -11,6 +11,8 @@ from .strands import COMPLEMENT, SCORES, read_sequence, split_best
 STOP = -1e6
 SITE_TYPES = {'donor': 'gt', 'acceptor': 'ag', 'start': 'atg', 'stop': 'stop'}
 DEFAULT_MULT = float('2.71828182845905')
+CODING_HEADER = ('chrom', 'position_1based', 'strand', 'frame0_probability', 'frame1_probability',
+                 'frame2_probability', 'noncoding_probability', 'predicted_state')
 
 
 def probability(value, label):
@@ -135,6 +137,90 @@ def site_rows(path, seqid, length, strands):
             if len(fields) == 7:
                 value = probability(fields[6], label)
             yield fields[2], position, SITE_TYPES[fields[3]], value
+
+
+def write_coding_emissions(sequence, seqid, source, path):
+    """Convert calibrated CNN-Mamba frame probabilities without another temperature.
+
+    The input is one oriented sequence with + labels and contiguous 1-based
+    positions, as ChimAnn stages it. Class j at 0-based row n scores absolute
+    frame (n - j) mod 3. Values match UniAnn f126cc8 convert_coding_frame.pl
+    (the last upstream version without a temperature) on the same rows after
+    ChimAnn's column rotation; 08eaf15 later added sigmoid(logit(p)/3).
+    """
+    sequence = sequence.upper()
+    stops = {match.start() for match in re.finditer('TAA|TAG|TGA', sequence)}
+    log, e, length, n = math.log, math.e, len(sequence), 0
+    with source.open() as handle, path.open('w') as output:
+        write = output.write
+        for number, line in enumerate(handle, 1):
+            row = line.rstrip('\r\n').split('\t')
+            if number == 1 and tuple(row) == CODING_HEADER:
+                continue
+            label = f'{source}:{number}'
+            if len(row) not in (7, 8) or row[0] != seqid or row[2] != '+':
+                raise ValueError(f'Coding row must name the oriented FASTA {seqid} with a + label: {label}')
+            if n >= length:
+                raise ValueError(f'Coding table has more rows than the FASTA length {length}: {label}')
+            try:
+                position = int(row[1])
+            except ValueError as error:
+                raise ValueError(f'Invalid coding position: {label}') from error
+            if position != n + 1:
+                raise ValueError(f'Coding positions must be contiguous and 1-based (expected {n + 1}): {label}')
+            p0, p1, p2, nc = (probability(value, label) for value in row[3:7])
+            coding = 1 - nc
+            frames = [0.0, 0.0, 0.0]
+            frames[n % 3] = log(e * p0 * coding + 1e-10)
+            frames[(n - 1) % 3] = log(e * p1 * coding + 1e-10)
+            frames[(n - 2) % 3] = log(e * p2 * coding + 1e-10)
+            noncoding = intron = log(e * nc + 1e-10)
+            if n - 2 in stops:
+                frames[(n - 2) % 3], intron = -1000000, -2
+            write(f'{n}\t{noncoding:.2f}\t{frames[0]:.2f}\t{frames[1]:.2f}\t{frames[2]:.2f}'
+                  f'\t{intron:.2f}\t{sequence[n]}\n')
+            n += 1
+    if n != length:
+        raise ValueError(f'Coding table has {n} rows; FASTA length is {length}')
+
+
+def write_site_scores(scores, seqid, length, multiplier, directory):
+    """Write UniAnn's sparse site scores for the + rows of one oriented sequence."""
+    maximum = 0.0
+    for _, _, kind, value in site_rows(scores, seqid, length, ('+',)):
+        if kind == 'gt':
+            maximum = max(maximum, math.log(value * multiplier + 1e-10))
+    if maximum <= 0:
+        raise ValueError('No donor has a positive rescaled score; UniAnn would reject these site scores')
+    factor = math.floor(1000 / maximum + .5)
+    with ExitStack() as stack:
+        handles = {kind: stack.enter_context((directory / f'out.{kind}.txt').open('w'))
+                   for kind in SITE_TYPES.values()}
+        for _, position, kind, value in site_rows(scores, seqid, length, ('+',)):
+            score = math.log(value * multiplier + 1e-10) * factor
+            handles[kind].write(f'{position - 1}\t{score:.15g}\n')
+    return maximum, factor
+
+
+def prepare_cnn(fasta, coding, directory, scores=None, multiplier=DEFAULT_MULT):
+    """Write decoder inputs for one oriented sequence from CNN-Mamba probabilities."""
+    if not math.isfinite(multiplier) or not 1 <= multiplier <= 100:
+        raise ValueError('Multiplier must be between 1 and 100')
+    header, sequence = read_sequence(fasta)
+    seqid, length = header[1:].split()[0], len(sequence)
+    if directory.exists() and any(directory.iterdir()):
+        raise ValueError(f'Output directory must be new or empty: {directory}')
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / 'sequence.fna').write_text(header + '\n' + sequence + '\n')
+    write_coding_emissions(sequence, seqid, coding, directory / 'out.ps.txt')
+    metadata = dict(seqid=seqid, length=length, coding_frame=str(coding.resolve()), fasta=str(fasta.resolve()),
+                    temperature=None, frame_convention='class j at 0-based row n -> absolute frame (n - j) mod 3',
+                    emission_reference='UniAnn f126cc8 convert_coding_frame.pl with ChimAnn column rotation')
+    if scores is not None:
+        maximum, factor = write_site_scores(scores, seqid, length, multiplier, directory)
+        metadata.update(scores=str(scores.resolve()), multiplier=multiplier,
+                        maximum_donor_log_score=maximum, factor=factor)
+    return metadata
 
 
 def prepare_raw(job, directory, both=True):

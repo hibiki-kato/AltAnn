@@ -63,7 +63,28 @@ def parser():
     s.add_argument('--models', required=True, type=Path,
                    help='GFF3/GTF-like annotation whose transcript CDS chains are scored; only models on this sequence and orientation are used.')
     s.set_defaults(both_strands=False, mult=2.71828182845905, psauron=None, scores=None, best_gff=None)
+    r = sub.add_parser('prepare', help='Write decoder inputs (out.ps.txt and site scores) for one oriented sequence '
+                                       'from calibrated CNN-Mamba probabilities, without a further temperature.')
+    r.add_argument('-f', '--fasta', required=True, type=Path, help='FASTA containing exactly one oriented sequence.')
+    r.add_argument('-c', '--coding-frame', required=True, type=Path,
+                   help='CNN-Mamba frame table: chrom position_1based strand frame0..2 noncoding '
+                        '[predicted_state], + labels, one row per base (header optional).')
+    r.add_argument('-s', '--scores', type=Path,
+                   help='Site probability table: chrom pos strand type motif prob [rescaled_prob]. '
+                        'Without it only out.ps.txt is written.')
+    r.add_argument('-m', '--mult', type=float, default=2.71828182845905,
+                   help='Site probability multiplier before logarithmic scaling, between 1 and 100 (default: exp(1)).')
+    r.add_argument('--output', required=True, type=Path, help='New or empty directory for sequence.fna and out.*.txt.')
     return p
+
+
+def prepare(args):
+    from .preprocess import prepare_cnn
+    started = time.monotonic()
+    metadata = prepare_cnn(args.fasta, args.coding_frame, args.output, args.scores, args.mult)
+    metadata.update(version=__version__, command=sys.argv, seconds=time.monotonic() - started)
+    (args.output / 'prepare.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    print(f'Wrote {args.output}', file=sys.stderr)
 
 
 def add_input_arguments(d, keys=FILE_KEYS):
@@ -366,6 +387,8 @@ def main():
         if args.command == 'score':
             from .score import score
             score(args)
+        elif args.command == 'prepare':
+            prepare(args)
         else:
             decode(args)
     except (ValueError, OSError, KeyError, ArithmeticError, csv.Error) as error:

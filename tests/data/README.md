@@ -175,3 +175,22 @@ The full actual CNN-Mamba predictions, six native traces, annotations, command
 logs and reference metrics remain ignored under
 `example/results/cnn-mamba-spom-validation/gpu-run-20261013/`, as described in
 `docs/spom-validation.md`.
+
+# CNN-Mamba input fixture (no temperature)
+
+`cnn-input/` checks `altann prepare`. `sequence.fna` (1,500 bases, random
+with a soft-masked stretch and one `N`), `coding.tsv` (cnn-mamba header and
+column order, including 0/1 edge rows) and `sites.tsv` (header, 7-column and
+minus-strand rows) are synthetic. The five `out.*.txt` files were produced by
+upstream UniAnn `f126cc8` (the last converter without a temperature): its
+wrapper, converter and freshly compiled decoder ran on ChimAnn's staged
+`coding.tsv` (header removed, frame columns rotated left by one). AltAnn was not
+used. Regenerate with:
+
+```sh
+python3 tests/generate_cnn_input_fixture.py --uniann ../UniAnn
+```
+
+`provenance.json` records the commit, the hashes of the upstream files and of
+the expected outputs. Upstream would also score `+` rows that name another
+sequence; AltAnn skips them, so that case is tested without an oracle.
