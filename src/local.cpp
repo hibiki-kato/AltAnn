@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <atomic>
+#include <climits>
 #include <future>
 #include <chrono>
 
@@ -401,9 +402,63 @@ LocusOutput decode_locus(
     int requested_right = (ref_idx == references.size() - 1)
         ? L - 1 : references[ref_idx + 1].path_start - 1;
     if (options.flank >= 0) {
-        requested_left = max(requested_left, ref.genomic_start_0based - options.flank);
+        int flank = options.flank;
+        if (options.flank_cds_cap) {
+            long long coding = 0;
+            for (const auto &cds : ref.cds_intervals)
+                coding += cds.end_0based_exclusive - cds.start_0based;
+            flank = static_cast<int>(min<long long>(flank, coding));
+        }
+        int left_flank = flank, right_flank = flank;
+        if (options.flank_junctions) {
+            const int start = ref.genomic_start_0based, end = ref.genomic_end_0based_exclusive;
+            const auto &junctions = *options.flank_junctions;
+            // Relative support: a fraction of the median reads of this reference's
+            // own CDS introns, or of the whole file when none of them is present.
+            double min_reads = 0;
+            if (options.flank_junction_min_fraction > 0) {
+                vector<double> own;
+                for (size_t k = 0; k + 1 < ref.cds_intervals.size(); ++k) {
+                    const double n = junctions.reads(ref.cds_intervals[k].end_0based_exclusive,
+                                                     ref.cds_intervals[k + 1].start_0based);
+                    if (n >= 0) own.push_back(n);
+                }
+                double median = junctions.median_reads;
+                if (!own.empty()) {
+                    sort(own.begin(), own.end());
+                    const size_t n = own.size();
+                    median = n % 2 ? own[n / 2] : (own[n / 2 - 1] + own[n / 2]) / 2;
+                }
+                min_reads = options.flank_junction_min_fraction * median;
+            }
+            const auto supported = [&](const pair<int, int> &j) {
+                return min_reads <= 0 || junctions.reads(j.first, j.second) >= min_reads;
+            };
+            // Left: the intron ends (acceptor-side exon starts) inside the span and
+            // starts before it. by_end is sorted by end.
+            // The donor-side exon ends at base it->first - 1, before the span.
+            int farthest = INT_MAX;
+            for (auto it = lower_bound(junctions.by_end.begin(), junctions.by_end.end(), make_pair(start, INT_MIN),
+                     [](const pair<int, int> &j, const pair<int, int> &key) { return j.second < key.first; });
+                 it != junctions.by_end.end() && it->second < end; ++it)
+                if (it->first <= start && supported(*it)) farthest = min(farthest, it->first);
+            if (farthest != INT_MAX)
+                left_flank = max(left_flank, min(options.flank_junction_cap,
+                                                 start + 1 - farthest + options.flank_junction_pad));
+            // Right: the intron starts (donor-side exon ends) inside the span and
+            // ends after it.
+            // The acceptor-side exon starts at base it->second, after the span.
+            farthest = INT_MIN;
+            for (auto it = lower_bound(junctions.by_start.begin(), junctions.by_start.end(), make_pair(start + 1, INT_MIN));
+                 it != junctions.by_start.end() && it->first <= end; ++it)
+                if (it->second >= end && supported(*it)) farthest = max(farthest, it->second);
+            if (farthest != INT_MIN)
+                right_flank = max(right_flank, min(options.flank_junction_cap,
+                                                   farthest + 1 - end + options.flank_junction_pad));
+        }
+        requested_left = max(requested_left, ref.genomic_start_0based - left_flank);
         requested_right = static_cast<int>(min<long long>(requested_right,
-            static_cast<long long>(ref.genomic_end_0based_exclusive) - 1 + options.flank));
+            static_cast<long long>(ref.genomic_end_0based_exclusive) - 1 + right_flank));
     }
 
     // Complete annotations omit terminal partial genes and invalid structures,

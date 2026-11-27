@@ -213,3 +213,53 @@ ModelInputs ScoreCursor::at(int position) {
     }
     return window_.inputs();
 }
+
+FlankJunctions read_flank_junctions(const string &path, int sequence_length) {
+    ifstream in(path);
+    if (!in) throw runtime_error("Cannot open flank junction file: " + path);
+    vector<tuple<int, int, double>> rows;
+    string line;
+    int line_number = 0, with_reads = 0;
+    while (getline(in, line)) {
+        ++line_number;
+        if (line.empty() || line[0] == '#') continue;
+        istringstream fields(line);
+        long long start, end;
+        if (!(fields >> start >> end) || start < 0 || end <= start || end > sequence_length)
+            throw runtime_error("Invalid flank junction at " + path + ":" + to_string(line_number));
+        double reads = -1;
+        if (fields >> reads) {
+            if (!(reads >= 0)) throw runtime_error("Invalid read count at " + path + ":" + to_string(line_number));
+            ++with_reads;
+        }
+        rows.emplace_back(static_cast<int>(start), static_cast<int>(end), reads);
+    }
+    if (with_reads && with_reads != static_cast<int>(rows.size()))
+        throw runtime_error("Flank junction read counts must be given on every row or none: " + path);
+    sort(rows.begin(), rows.end());
+    FlankJunctions result;
+    for (const auto &[start, end, reads] : rows) {
+        if (!result.by_start.empty() && result.by_start.back() == make_pair(start, end)) {
+            if (with_reads) result.reads_by_start.back() += reads;  // repeated rows add up
+            continue;
+        }
+        result.by_start.emplace_back(start, end);
+        if (with_reads) result.reads_by_start.push_back(reads);
+    }
+    result.by_end = result.by_start;
+    sort(result.by_end.begin(), result.by_end.end(),
+         [](const pair<int, int> &a, const pair<int, int> &b) { return make_pair(a.second, a.first) < make_pair(b.second, b.first); });
+    if (!result.reads_by_start.empty()) {
+        vector<double> sorted_reads = result.reads_by_start;
+        sort(sorted_reads.begin(), sorted_reads.end());
+        const size_t n = sorted_reads.size();
+        result.median_reads = n % 2 ? sorted_reads[n / 2] : (sorted_reads[n / 2 - 1] + sorted_reads[n / 2]) / 2;
+    }
+    return result;
+}
+
+double FlankJunctions::reads(int start, int end) const {
+    const auto it = lower_bound(by_start.begin(), by_start.end(), make_pair(start, end));
+    if (it == by_start.end() || *it != make_pair(start, end) || reads_by_start.empty()) return -1;
+    return reads_by_start[it - by_start.begin()];
+}
