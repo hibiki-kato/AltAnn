@@ -523,7 +523,7 @@ class DecoderTests(unittest.TestCase):
             with self.subTest(reverse=reverse):
                 direction = ["--reverse"] if reverse else []
                 _, saved = self.run_saved_baseline(
-                    ["--log", str(DATA / "uniann-fixture.trace"),
+                    ["--log", str(DATA / "uniann-fixture.spliced.trace"),
                      "--gff", str(DATA / "uniann-fixture.gff3"), *direction])
                 _, recomputed = self.run_saved_baseline(
                     ["--rerun-viterbi", *direction], name="recomputed")
@@ -532,9 +532,17 @@ class DecoderTests(unittest.TestCase):
                 self.assertEqual(Path(str(saved) + ".tsv").read_bytes(),
                                  Path(str(recomputed) + ".tsv").read_bytes())
 
+    def test_legacy_trace_requires_matching_decoder_version(self):
+        result, output = self.run_saved_baseline(
+            ["--log", str(DATA / "uniann-fixture.trace"),
+             "--gff", str(DATA / "uniann-fixture.gff3")], check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("score mismatch", result.stderr)
+        self.assertFalse(output.exists())
+
     def test_upstream_trace_ignores_progress_messages(self):
         trace = self.work / "progress.trace"
-        rows = (DATA / "uniann-fixture.trace").read_text().splitlines(keepends=True)
+        rows = (DATA / "uniann-fixture.spliced.trace").read_text().splitlines(keepends=True)
         trace.write_text("Loading sequence\n" + "".join(rows[:101]) +
                          "Warning: diagnostic message\n" + "".join(rows[101:]) +
                          "Finished decoding\n")
@@ -544,7 +552,7 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(saved.read_bytes(), recomputed.read_bytes())
 
     def test_corrupt_upstream_trace_is_rejected(self):
-        original = (DATA / "uniann-fixture.trace").read_text().splitlines()
+        original = (DATA / "uniann-fixture.spliced.trace").read_text().splitlines()
         # Position 1's N predecessor is 0. State 1 is in range, but has a
         # different score, so this checks replay validation rather than bounds.
         score = original.copy()
@@ -578,7 +586,7 @@ class DecoderTests(unittest.TestCase):
 
     def test_default_mode_requires_both_gff_and_log(self):
         for extra in ([], ["--gff", str(DATA / "uniann-fixture.gff3")],
-                      ["--log", str(DATA / "uniann-fixture.trace")]):
+                      ["--log", str(DATA / "uniann-fixture.spliced.trace")]):
             with self.subTest(arguments=extra):
                 result, output = self.run_saved_baseline(extra, check=False)
                 self.assertNotEqual(result.returncode, 0)
@@ -587,7 +595,7 @@ class DecoderTests(unittest.TestCase):
 
     def test_explicit_log_cannot_be_combined_with_rerun(self):
         result, output = self.run_saved_baseline(
-            ["--rerun-viterbi", "--log", str(DATA / "uniann-fixture.trace")], check=False)
+            ["--rerun-viterbi", "--log", str(DATA / "uniann-fixture.spliced.trace")], check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--log cannot be combined with --rerun-viterbi", result.stderr)
         self.assertFalse(output.exists())

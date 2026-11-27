@@ -82,6 +82,7 @@ TransitionResult evaluate_transition(
     const bool stop = is_stop_codon(codon);
 
     if (is_exon(to) && is_exon(from) && from == to && stop &&
+        !previous.coding_started &&
         codon_start_0based(position) % 3 == to - 1) {
         log_t = NEG_INF;
     }
@@ -92,7 +93,8 @@ TransitionResult evaluate_transition(
         const int length = previous.exon_len - 2;
         log_t = NEG_INF;
         if ((to - 4) == (from - 1) &&
-            (length >= MIN_EXON || previous.exon_from == 0)) {
+            (length >= MIN_EXON || (previous.exon_from == 0 &&
+                                    previous.exon_len - 1 >= 3))) {
             log_t = inputs.gt_score[splice_motif_start_0based(position)];
         }
     }
@@ -159,6 +161,49 @@ TransitionResult evaluate_transition(
     }
     if (to == 0)
         next.inter_len = from == 0 ? previous.inter_len + 1 : 1;
+
+    // The annotation ends the exon at position-2 on E->I and starts it
+    // at position+1 on I->E. Consume coding bases only once they cannot
+    // become a splice motif, preserving an unfinished codon across introns.
+    if (is_exon(to) || is_intron(to)) {
+        next.coding_started = previous.coding_started;
+        next.coding_suffix = previous.coding_suffix;
+        next.coding_suffix_length = previous.coding_suffix_length;
+    }
+    bool invalid_coding = false;
+    auto consume = [&](int base, bool terminal) {
+        const char nucleotide = toupper(inputs.seq[base]);
+        if (next.coding_suffix_length < 2) {
+            next.coding_suffix[next.coding_suffix_length++] = nucleotide;
+        } else {
+            string spliced{next.coding_suffix[0], next.coding_suffix[1], nucleotide};
+            if (is_stop_codon(spliced) && !terminal) invalid_coding = true;
+            next.coding_suffix_length = 0;
+        }
+    };
+    if (from == 0 && is_exon(to) && codon == "ATG") {
+        next.coding_started = true;
+        next.coding_suffix_length = 0;
+        consume(position - 2, false);
+    } else if (is_exon(from) && previous.coding_started) {
+        // After I->E the first two positions still precede the new CDS base.
+        const bool coding_base = previous.exon_from == 0 || previous.exon_len >= 3;
+        if (to == 0) {
+            next.coding_suffix = previous.coding_suffix;
+            next.coding_suffix_length = previous.coding_suffix_length;
+            if (coding_base) consume(position - 2, false);
+            consume(position - 1, false);
+            consume(position, true);
+            next.coding_suffix_length = 0;
+            next.coding_started = false;
+        } else if (coding_base) {
+            consume(position - 2, false);
+        }
+    }
+    if (invalid_coding) {
+        result.transition_score = NEG_INF;
+        result.allowed = false;
+    }
     result.next_metadata = next;
     return result;
 }

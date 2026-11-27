@@ -61,6 +61,10 @@ if(BUILD_TESTING)
     target_link_libraries(test-score-models PRIVATE OpenMP::OpenMP_CXX)
     target_compile_options(test-score-models PRIVATE -Wall -Wextra)
     add_test(NAME score-models COMMAND test-score-models)
+    add_executable(test-spliced-codons tests/test_spliced_codons.cpp src/model.cpp)
+    target_include_directories(test-spliced-codons PRIVATE src)
+    target_compile_options(test-spliced-codons PRIVATE -Wall -Wextra)
+    add_test(NAME spliced-codons COMMAND test-spliced-codons)
     add_test(NAME integration COMMAND ${CMAKE_COMMAND} -E env
         "ALTANN_CORE=$<TARGET_FILE:altann-core>"
         ${Python3_EXECUTABLE} -m unittest discover -s tests -v)
