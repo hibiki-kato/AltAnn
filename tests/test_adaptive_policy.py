@@ -99,7 +99,7 @@ class AdaptivePolicyTest(unittest.TestCase):
         cmd, meta = self.run_mock_decode(['--adaptive-k-policy', str(self.path), '--k', '40'])
         self.assertEqual(cmd[cmd.index('--k')+1], 40)
         self.assertEqual(cmd[cmd.index('--adaptive-k')+1], 'linear,4.0,3.0')
-        self.assertEqual(meta['adaptive_k_policy'], {'source_path':str(self.path), 'policy':self.linear})
+        self.assertEqual(meta['adaptive_k_policy'], {'source_path':str(self.path.resolve()), 'policy':self.linear})
 
     def test_ordinary_command_unchanged(self):
         cmd, meta = self.run_mock_decode([])
