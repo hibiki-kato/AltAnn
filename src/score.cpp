@@ -91,6 +91,40 @@ string model_states(const vector<GenomicInterval> &cds, int length,
     return "";
 }
 
+struct Window {
+    bool valid = false;
+    int left = -1, right = -1, replace_left = -1, replace_right = -1;
+    PathMetadata initial;
+};
+
+// Replace whole global coding runs touching [first, last], so no half-gene of
+// the baseline remains, then extend through adjoining N runs as decode_locus
+// does for a reference spanning [span_start, span_end).
+Window model_window(int first, int last, int span_start, int span_end,
+                    const Baseline &baseline, const Options &options) {
+    const auto &global = baseline.states;
+    const int L = global.size();
+    Window w;
+    w.replace_left = first;
+    w.replace_right = last;
+    while (w.replace_left > 1 && global[w.replace_left - 1] != 0) --w.replace_left;
+    while (w.replace_right + 2 < L && global[w.replace_right + 1] != 0) ++w.replace_right;
+    if (global[w.replace_left - 1] != 0 || global[w.replace_right + 1] != 0) return w;
+    w.left = w.replace_left - 1;
+    w.right = w.replace_right + 1;
+    const long long requested_left = static_cast<long long>(span_start) - options.flank;
+    const long long requested_right = static_cast<long long>(span_end) - 1 + options.flank;
+    while (w.left > 0 && (options.flank < 0 || w.left > requested_left) && global[w.left - 1] == 0) --w.left;
+    while (w.right + 1 < L && (options.flank < 0 || w.right < requested_right) && global[w.right + 1] == 0) ++w.right;
+    w.initial = options.flank >= 0 ? baseline.noncoding_prefix[w.left] : PathMetadata{};
+    if (w.left == 0 || options.flank < 0) {
+        w.initial.predecessor_state = 0;
+        w.initial.inter_len = 1;
+    }
+    w.valid = true;
+    return w;
+}
+
 template <class StateAt>
 Replay replay(int left, int right, PathMetadata metadata, StateAt state_at,
               const ModelInputs &inputs) {
@@ -127,28 +161,17 @@ string score_model(const ModelRecord &model, const string &seqid,
         return row.str();
     }
     const int last = first + static_cast<int>(states.size()) - 1;
-    // Replace whole global coding runs, so no half-gene of the baseline remains.
-    int replace_left = first, replace_right = last;
-    while (replace_left > 1 && global[replace_left - 1] != 0) --replace_left;
-    while (replace_right + 2 < L && global[replace_right + 1] != 0) ++replace_right;
-    if (global[replace_left - 1] != 0 || global[replace_right + 1] != 0) {
+    const auto window = model_window(first, last, model.cds.front().start_0based,
+                                     model.cds.back().end_0based_exclusive, baseline, options);
+    if (!window.valid) {
         row << "unscorable\ttouches_sequence_end\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\n";
         return row.str();
     }
-    // Same window rule as decode_locus for a reference with this span.
-    int left = replace_left - 1, right = replace_right + 1;
-    const long long requested_left = static_cast<long long>(model.cds.front().start_0based) - options.flank;
-    const long long requested_right = static_cast<long long>(model.cds.back().end_0based_exclusive) - 1 + options.flank;
-    while (left > 0 && (options.flank < 0 || left > requested_left) && global[left - 1] == 0) --left;
-    while (right + 1 < L && (options.flank < 0 || right < requested_right) && global[right + 1] == 0) ++right;
-
-    const auto window = transition_window(source, left, right);
-    const auto inputs = window.inputs();
-    PathMetadata initial = options.flank >= 0 ? baseline.noncoding_prefix[left] : PathMetadata{};
-    if (left == 0 || options.flank < 0) {
-        initial.predecessor_state = 0;
-        initial.inter_len = 1;
-    }
+    const int left = window.left, right = window.right;
+    const int replace_left = window.replace_left, replace_right = window.replace_right;
+    const PathMetadata &initial = window.initial;
+    const auto scores = transition_window(source, left, right);
+    const auto inputs = scores.inputs();
     const auto reference = replay(left, right, initial,
                                   [&](int p) { return global[p]; }, inputs);
     if (!reference.allowed)
@@ -200,7 +223,91 @@ string score_model(const ModelRecord &model, const string &seqid,
     else row << best_jaccard << '\n';
     return row.str();
 }
+// Decode the best path forced through every intron of a row, then score the
+// gene carrying those introns exactly as a supplied model. Introns are
+// zero-based half-open [GT, AG + 2), so the donor and acceptor G stay exon.
+string force_row(const ModelRecord &row, const string &seqid,
+                 const vector<TranscriptAnnotation> &references,
+                 const Baseline &baseline, const ScoreSource &source,
+                 const Options &options) {
+    const auto &introns = row.cds;
+    const int L = baseline.states.size();
+    const auto fail = [&](const string &reason) {
+        return row.id + "\t.\tunscorable\t" + reason + "\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\n";
+    };
+    for (size_t i = 0; i < introns.size(); ++i) {
+        if (introns[i].end_0based_exclusive - introns[i].start_0based < 4)
+            return fail("intron_too_short");
+        if (i + 1 < introns.size() && introns[i + 1].start_0based < introns[i].end_0based_exclusive + 3)
+            return fail("overlapping_introns");
+    }
+    const int first = introns.front().start_0based;
+    const int last = introns.back().end_0based_exclusive - 1;
+    if (first < 2 || last + 2 >= L) return fail("touches_sequence_end");
+    // Flank the replaced genes, not the introns, so their own starts and
+    // stops stay reachable.
+    const auto replaced = model_window(first, last, first, last + 1, baseline, options);
+    if (!replaced.valid) return fail("touches_sequence_end");
+    const auto window = model_window(first, last, replaced.replace_left,
+                                     replaced.replace_right + 1, baseline, options);
+    const auto scores = transition_window(source, window.left, window.right);
+    const auto inputs = scores.inputs();
+    const uint8_t exon = 0x0e, intron = 0x70;
+    vector<uint8_t> allowed(window.right - window.left + 1, 0x7f);
+    for (const auto &i : introns) {
+        allowed[i.start_0based - window.left] = exon;
+        allowed[i.end_0based_exclusive - 1 - window.left] = exon;
+        for (int p = i.start_0based + 1; p <= i.end_0based_exclusive - 2; ++p)
+            allowed[p - window.left] = intron;
+    }
+    Options single = options;
+    single.k = 1;
+    const auto paths = search_paths(window.left, window.right, window.initial, inputs, single, &allowed);
+    if (paths.empty()) return fail("no_path");
+    for (const auto &t : build_transcript_annotations(paths[0].path, seqid)) {
+        const bool carries = all_of(introns.begin(), introns.end(), [&](const GenomicInterval &i) {
+            return find(t.junctions.begin(), t.junctions.end(),
+                        SpliceJunction{i.start_0based, i.end_0based_exclusive - 2, '+'}) != t.junctions.end();
+        });
+        if (!carries) continue;
+        string cds;
+        for (const auto &c : t.cds_intervals)
+            cds += (cds.empty() ? "" : ",") + to_string(c.start_0based) + "-" + to_string(c.end_0based_exclusive);
+        const string scored = score_model({row.id, t.cds_intervals}, seqid, references, baseline, source, options);
+        return row.id + "\t" + cds + scored.substr(row.id.size());
+    }
+    return fail("no_complete_gene");
+}
 } // namespace
+
+void run_junction_forcing(const string &seqid, const vector<TranscriptAnnotation> &references,
+                          const Baseline &baseline, const ScoreSource &source,
+                          const Options &options) {
+    const auto rows = read_models(options.junctions_filename);
+    vector<string> out_rows(rows.size()), errors(rows.size());
+    const int requested = options.threads > 0 ? options.threads : omp_get_num_procs();
+    const int threads = max(1, min(requested, static_cast<int>(max<size_t>(1, rows.size()))));
+    // Each worker owns a constrained search budget; bound their combined total.
+    Options worker_options = options;
+    worker_options.traceback_memory_bytes /= threads;
+    const int count = static_cast<int>(rows.size());
+    #pragma omp parallel for schedule(dynamic) num_threads(threads)
+    for (int i = 0; i < count; ++i) {
+        try { out_rows[i] = force_row(rows[i], seqid, references, baseline, source, worker_options); }
+        catch (const exception &error) { errors[i] = error.what(); }
+        catch (...) { errors[i] = "Unknown forcing error"; }
+    }
+    ostringstream out;
+    out << "model_id\tcds\tstatus\treason\tfailed_position_1based\tmodel_score\t"
+        << "reference_score\tdelta\twindow_start_1based\twindow_end_1based\t"
+        << "replaced_start_1based\treplaced_end_1based\treference_gene_indices\t"
+        << "identical_to_reference\tsplice_site_jaccard\n";
+    for (size_t i = 0; i < rows.size(); ++i) {
+        if (!errors[i].empty()) throw runtime_error(rows[i].id + ": " + errors[i]);
+        out << out_rows[i];
+    }
+    write_output_bundle({{options.output_filename, out.str()}});
+}
 
 void run_model_scoring(const string &seqid, const vector<TranscriptAnnotation> &references,
                        const Baseline &baseline, const ScoreSource &source,

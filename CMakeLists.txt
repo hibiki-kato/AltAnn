@@ -57,7 +57,7 @@ if(BUILD_TESTING)
     target_compile_options(test-orf-overlap PRIVATE -Wall -Wextra)
     add_test(NAME orf-overlap COMMAND test-orf-overlap)
     add_executable(test-score-models
-        tests/test_score_models.cpp src/loaders.cpp src/model.cpp src/output.cpp src/output_files.cpp)
+        tests/test_score_models.cpp src/loaders.cpp src/model.cpp src/local.cpp src/output.cpp src/output_files.cpp)
     target_link_libraries(test-score-models PRIVATE OpenMP::OpenMP_CXX)
     target_compile_options(test-score-models PRIVATE -Wall -Wextra)
     add_test(NAME score-models COMMAND test-score-models)
